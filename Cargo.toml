@@ -1,0 +1,18 @@
+[workspace]
+members = ["cyclonedds", "cyclonedds-sys"]
+resolver = "3"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+homepage = "https://cyclonedds.io/"
+repository = "https://github.com/eclipse-cyclonedds/cyclonedds-rust"
+license = "EPL-2.0 OR BSD-3-Clause"
+authors = ["Troy Karan Harrison <troy.harrison@zettascale.tech>"]
+description = "Rust binding for Eclipse Cyclone DDS"
+
+[workspace.dependencies]
+eclipse-cyclonedds-sys = { version = "0.0.1", path = "cyclonedds-sys" }
+
+[workspace.metadata.crane]
+name = "eclipse-cyclonedds"
