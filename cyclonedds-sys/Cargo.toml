@@ -12,3 +12,6 @@ version.workspace = true
 name = "cyclonedds_sys"
 
 [dependencies]
+
+[build-dependencies]
+bindgen = "0.72.1"
