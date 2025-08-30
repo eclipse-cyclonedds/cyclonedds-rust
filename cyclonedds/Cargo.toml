@@ -13,3 +13,8 @@ name = "cyclonedds"
 
 [dependencies]
 eclipse-cyclonedds-sys = { workspace = true }
+serde = "1.0.228"
+
+[dev-dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+uuid = { version = "1.19.0", features = ["v4"] }
