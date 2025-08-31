@@ -138,5 +138,25 @@ pub fn dds_delete(entity: cyclonedds_sys::dds_entity_t) -> Result<()> {
     Ok(())
 }
 
+/// Create a domain. This is primarily used by the
+/// [`Domain`][`crate::Domain`] wrapper.
+pub fn dds_create_domain(
+    domain_id: cyclonedds_sys::dds_domainid_t,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    Ok(
+        unsafe { cyclonedds_sys::dds_create_domain(domain_id, std::ptr::null()) }.into_error()?
+            as _,
+    )
+}
+
+/// Create a domain with a specific XML config. This is primarily used by the
+/// [`Domain`][`crate::Domain`] wrapper.
+pub fn dds_create_domain_with_config(
+    domain_id: cyclonedds_sys::dds_domainid_t,
+    config: &std::ffi::CStr,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    Ok(unsafe { cyclonedds_sys::dds_create_domain(domain_id, config.as_ptr()) }.into_error()? as _)
+}
+
 #[cfg(test)]
 mod tests;
