@@ -132,5 +132,11 @@ pub fn ddsi_sertype_fini(sertype: &mut cyclonedds_sys::ddsi_sertype) {
     }
 }
 
+/// Delete an entity.
+pub fn dds_delete(entity: cyclonedds_sys::dds_entity_t) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_delete(entity) }.into_error()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;
