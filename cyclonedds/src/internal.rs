@@ -19,4 +19,6 @@
 
 pub mod ffi;
 pub mod key_hash;
+pub mod serdata;
+pub mod sertype;
 pub mod traits;
