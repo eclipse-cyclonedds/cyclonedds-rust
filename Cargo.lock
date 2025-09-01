@@ -154,6 +154,7 @@ dependencies = [
 name = "eclipse-cyclonedds"
 version = "0.0.1"
 dependencies = [
+ "bitflags",
  "byteorder",
  "eclipse-cyclonedds-macros",
  "eclipse-cyclonedds-sys",
