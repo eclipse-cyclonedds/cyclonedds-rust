@@ -158,5 +158,202 @@ pub fn dds_create_domain_with_config(
     Ok(unsafe { cyclonedds_sys::dds_create_domain(domain_id, config.as_ptr()) }.into_error()? as _)
 }
 
+pub fn dds_reset_qos(qos: &mut cyclonedds_sys::dds_qos_t) {
+    unsafe {
+        cyclonedds_sys::dds_reset_qos(qos);
+    }
+}
+
+pub fn dds_qos_set_user_data(qos: &mut cyclonedds_sys::dds_qos_t, user_data: &[u8]) {
+    unsafe {
+        cyclonedds_sys::dds_qset_userdata(qos, user_data.as_ptr().cast(), user_data.len());
+    }
+}
+
+pub fn dds_qos_set_topic_data(qos: &mut cyclonedds_sys::dds_qos_t, topic_data: &[u8]) {
+    unsafe {
+        cyclonedds_sys::dds_qset_userdata(qos, topic_data.as_ptr().cast(), topic_data.len());
+    }
+}
+
+pub fn dds_qos_set_group_data(qos: &mut cyclonedds_sys::dds_qos_t, group_data: &[u8]) {
+    unsafe {
+        cyclonedds_sys::dds_qset_userdata(qos, group_data.as_ptr().cast(), group_data.len());
+    }
+}
+
+pub fn dds_qos_set_durability(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    kind: cyclonedds_sys::dds_durability_kind_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_durability(qos, kind) }
+}
+
+pub fn dds_qos_set_durability_service(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    service_cleanup_delay: cyclonedds_sys::dds_duration_t,
+    history_kind: cyclonedds_sys::dds_history_kind_t,
+    history_depth: i32,
+    max_samples: i32,
+    max_instances: i32,
+    max_samples_per_instance: i32,
+) {
+    unsafe {
+        cyclonedds_sys::dds_qset_durability_service(
+            qos,
+            service_cleanup_delay,
+            history_kind,
+            history_depth,
+            max_samples,
+            max_instances,
+            max_samples_per_instance,
+        );
+    }
+}
+
+pub fn dds_qos_set_presentation(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    access_scope: cyclonedds_sys::dds_presentation_access_scope_kind,
+    coherent_access: bool,
+    ordered_access: bool,
+) {
+    unsafe {
+        cyclonedds_sys::dds_qset_presentation(qos, access_scope, coherent_access, ordered_access);
+    }
+}
+
+pub fn dds_qos_set_deadline(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    deadline: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_deadline(qos, deadline) }
+}
+
+pub fn dds_qos_set_latency_budget(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    duration: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_latency_budget(qos, duration) }
+}
+
+pub fn dds_qos_set_ownership(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    kind: cyclonedds_sys::dds_ownership_kind_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_ownership(qos, kind) }
+}
+
+pub fn dds_qos_set_ownership_strength(qos: &mut cyclonedds_sys::dds_qos_t, value: i32) {
+    unsafe { cyclonedds_sys::dds_qset_ownership_strength(qos, value) }
+}
+
+pub fn dds_qos_set_liveliness(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    kind: cyclonedds_sys::dds_liveliness_kind_t,
+    lease_duration: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_liveliness(qos, kind, lease_duration) }
+}
+
+pub fn dds_qos_set_time_based_filter(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    minimum_separation: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_time_based_filter(qos, minimum_separation) }
+}
+
+pub fn dds_qos_set_partition(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    partitions: &[std::ffi::CString],
+) {
+    let n = u32::try_from(partitions.len())
+        .expect("too many partitions supplied (DDS limits the number of partitions to u32::MAX)");
+    let mut ps: Vec<_> = partitions.iter().map(|str| str.as_ptr()).collect();
+    unsafe { cyclonedds_sys::dds_qset_partition(qos, n, ps.as_mut_ptr()) }
+}
+
+pub fn dds_qos_set_reliability(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    kind: cyclonedds_sys::dds_reliability_kind_t,
+    max_blocking_time: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_reliability(qos, kind, max_blocking_time) }
+}
+
+pub fn dds_qos_set_transport_priority(qos: &mut cyclonedds_sys::dds_qos_t, value: i32) {
+    unsafe { cyclonedds_sys::dds_qset_transport_priority(qos, value) }
+}
+
+pub fn dds_qos_set_lifespan(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    lifespan: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_lifespan(qos, lifespan) }
+}
+
+pub fn dds_qos_set_destination_order(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    kind: cyclonedds_sys::dds_destination_order_kind_t,
+) {
+    unsafe { cyclonedds_sys::dds_qset_destination_order(qos, kind) }
+}
+
+pub fn dds_qos_set_history(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    kind: cyclonedds_sys::dds_history_kind_t,
+    depth: i32,
+) {
+    unsafe { cyclonedds_sys::dds_qset_history(qos, kind, depth) }
+}
+
+pub fn dds_qos_set_resource_limits(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    max_samples: i32,
+    max_instances: i32,
+    max_samples_per_instance: i32,
+) {
+    unsafe {
+        cyclonedds_sys::dds_qset_resource_limits(
+            qos,
+            max_samples,
+            max_instances,
+            max_samples_per_instance,
+        );
+    }
+}
+
+pub const fn dds_qos_set_entity_factory(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    autoenable_created_entities: bool,
+) {
+    // FIXME? there's no associated dds_qset_?
+    qos.entity_factory.autoenable_created_entities =
+        if autoenable_created_entities { 1 } else { 0 };
+}
+
+pub fn dds_qos_set_writer_data_lifecycle(qos: &mut cyclonedds_sys::dds_qos_t, autodispose: bool) {
+    unsafe { cyclonedds_sys::dds_qset_writer_data_lifecycle(qos, autodispose) }
+}
+
+pub fn dds_qos_set_reader_data_lifecycle(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    autopurge_nowriter_samples_delay: cyclonedds_sys::dds_duration_t,
+    autopurge_disposed_samples_delay: cyclonedds_sys::dds_duration_t,
+) {
+    unsafe {
+        cyclonedds_sys::dds_qset_reader_data_lifecycle(
+            qos,
+            autopurge_nowriter_samples_delay,
+            autopurge_disposed_samples_delay,
+        );
+    }
+}
+
+pub fn dds_qos_set_entity_name(qos: &mut cyclonedds_sys::dds_qos_t, name: &std::ffi::CStr) {
+    unsafe {
+        cyclonedds_sys::dds_qset_entity_name(qos, name.as_ptr());
+    }
+}
+
 #[cfg(test)]
 mod tests;

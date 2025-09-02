@@ -23,6 +23,14 @@ impl<T: std::hash::Hash> Hash32 for T {
     }
 }
 
+pub(crate) trait AsFfi {
+    type Target<'a>
+    where
+        Self: 'a;
+
+    fn as_ffi(&self) -> Self::Target<'_>;
+}
+
 pub trait CdrHeader {
     fn cdr_header() -> [u8; 4];
 }
