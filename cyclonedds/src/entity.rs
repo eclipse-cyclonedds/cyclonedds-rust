@@ -115,10 +115,80 @@ macro_rules! impl_entity {
     };
 }
 
+impl_entity!(crate::Participant<'_>);
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_entity_id_all_entity_types() {}
+    fn test_entity_id_all_entity_types() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        assert_eq!(participant.id().inner, participant.inner);
+    }
+
+    #[test]
+    fn test_entity_methods_on_invalid_participant() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let mut participant = crate::Participant::new(&domain).unwrap();
+        let participant_id = participant.inner;
+        participant.inner = 0;
+
+        assert_eq!(
+            crate::Error::BadParameter,
+            participant.instance_handle().unwrap_err()
+        );
+        assert_eq!(
+            crate::Error::BadParameter,
+            participant.status_changes().unwrap_err()
+        );
+        assert_eq!(
+            crate::Error::BadParameter,
+            participant.take_status(None).unwrap_err()
+        );
+        assert_eq!(
+            crate::Error::BadParameter,
+            participant.read_status(None).unwrap_err()
+        );
+        assert_eq!(
+            crate::Error::BadParameter,
+            participant.status_mask().unwrap_err()
+        );
+        assert_eq!(
+            crate::Error::BadParameter,
+            participant
+                .set_status_mask(crate::Status::InconsistentTopic)
+                .unwrap_err()
+        );
+
+        participant.inner = participant_id;
+    }
+
+    #[test]
+    fn test_entity_methods_on_participant() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let result = participant.instance_handle();
+        assert!(result.is_ok());
+        let status_changes = participant.status_changes().unwrap();
+        assert!(status_changes.is_empty());
+        let result = participant.set_status_mask(crate::Status::empty());
+        assert!(result.is_ok());
+        let mask = participant.status_mask().unwrap();
+        assert_eq!(mask, crate::Status::empty());
+        let status = participant
+            .read_status(Some(crate::Status::empty()))
+            .unwrap();
+        assert!(status.is_empty());
+        let status = participant
+            .take_status(Some(crate::Status::empty()))
+            .unwrap();
+        assert!(status.is_empty());
+    }
 }

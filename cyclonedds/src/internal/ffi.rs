@@ -355,5 +355,22 @@ pub fn dds_qos_set_entity_name(qos: &mut cyclonedds_sys::dds_qos_t, name: &std::
     }
 }
 
+/// Create a participant within a domain. This is primarily used by the
+/// [`Participant`][`crate::Participant`] wrapper.
+pub fn dds_create_participant(
+    domain: cyclonedds_sys::dds_domainid_t,
+    qos: Option<&cyclonedds_sys::dds_qos_t>,
+    listener: Option<&cyclonedds_sys::dds_listener_t>,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe {
+        cyclonedds_sys::dds_create_participant(
+            domain,
+            qos.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+        )
+    }
+    .into_error()
+}
+
 #[cfg(test)]
 mod tests;
