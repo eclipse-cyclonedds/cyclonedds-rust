@@ -9,6 +9,7 @@ pub mod sample;
 pub mod state;
 pub mod status;
 mod time;
+mod topic;
 mod topicable;
 
 pub use cyclonedds_macros::Topicable;
@@ -20,6 +21,7 @@ pub use qos::QoS;
 pub use state::State;
 pub use status::bitflags::Status;
 pub use time::Time;
+pub use topic::Topic;
 pub use topicable::{Key, Topicable};
 
 #[cfg(feature = "internal")]

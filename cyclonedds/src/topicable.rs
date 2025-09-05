@@ -72,8 +72,15 @@ pub trait Topicable:
         + std::hash::Hash
         + crate::cdr_bounds::CdrBounds;
 
-    // TODO decide if this is exposed in the trait and if it should be exposed as a const or a
-    // function.
+    /// Whether this type has a meaningful key.
+    ///
+    /// `false` when `Self::Key` is `()`, in which case all samples belong to a
+    /// single instance. Derived from the size of `Self::Key` at compile time.
+    ///
+    /// This can technically be overridden, but doing so will produce
+    /// unintuitive behavior. The default derived value should be correct in
+    /// virtually all cases.
+    #[doc(hidden)]
     const IS_KEYED: bool = std::mem::size_of::<Self::Key>() != 0;
 
     /// Forces MD5 keyhash generation regardless of key size.

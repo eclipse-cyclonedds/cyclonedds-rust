@@ -22,7 +22,8 @@ impl<T> Serdata<T>
 where
     T: crate::Topicable,
 {
-    /// Create a new [`Serdata`] of a specific kind associated with a corresponding [`Sertype`].
+    /// Create a new [`Serdata`] of a specific kind associated with a
+    /// corresponding [`Sertype`].
     pub fn new(sertype: &Sertype<T>, sample: SampleOrKey<T>) -> Self {
         let kind = match sample {
             SampleOrKey::Sample { .. } => Kind::Data,

@@ -116,6 +116,7 @@ macro_rules! impl_entity {
 }
 
 impl_entity!(crate::Participant<'_>);
+impl_entity!(crate::Topic<'_, '_, T> where T: crate::Topicable);
 
 #[cfg(test)]
 mod tests {
@@ -126,8 +127,12 @@ mod tests {
         let domain_id = crate::tests::domain::unique_id();
         let domain = crate::Domain::new(domain_id).unwrap();
         let participant = crate::Participant::new(&domain).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let topic =
+            crate::Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
 
         assert_eq!(participant.id().inner, participant.inner);
+        assert_eq!(topic.id().inner, topic.inner);
     }
 
     #[test]

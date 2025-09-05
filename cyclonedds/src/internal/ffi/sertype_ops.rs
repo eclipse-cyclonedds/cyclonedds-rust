@@ -1,5 +1,5 @@
-//! Operations that allow Cyclone to interact with Rust allocated data structures.
-//! These are threaded through the [`Sertype`] type.
+//! Operations that allow Cyclone to interact with Rust allocated data
+//! structures. These are threaded through the [`Sertype`] type.
 
 use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
@@ -51,8 +51,8 @@ impl SertypeVersion {
     }
 }
 
-/// Arbitrary metadata that was originally used for backwards compatibility as part of the
-/// `sertopic` -> `sertype` changeover.
+/// Arbitrary metadata that was originally used for backwards compatibility as
+/// part of the `sertopic` -> `sertype` changeover.
 pub const ARG: *mut std::ffi::c_void = std::ptr::null_mut();
 
 /// A flag specifying that the data representation in use corresponds to XCDR1.
@@ -72,8 +72,8 @@ pub(crate) const fn zeroed_sertype_ops() -> cyclonedds_sys::ddsi_sertype_ops {
 /// Free a [`Sertype`] created on the Rust side of the FFI.
 ///
 /// ## Safety
-/// The provided `sertype` pointer must be from the pointer embedded in a [`Sertype`] that was
-/// created via [`Sertype::new`].
+/// The provided `sertype` pointer must be from the pointer embedded in a
+/// [`Sertype`] that was created via [`Sertype::new`].
 pub unsafe extern "C" fn free<T>(sertype: *mut cyclonedds_sys::ddsi_sertype)
 where
     T: crate::Topicable,
@@ -83,8 +83,8 @@ where
 }
 
 ///
-/// TODO: validate what the purpose of this is in the actual functioning of Cyclone?
-/// The C++ API also maps this to a no-op.
+/// TODO: validate what the purpose of this is in the actual functioning of
+/// Cyclone? The C++ API also maps this to a no-op.
 pub unsafe extern "C" fn zero_samples<T>(
     _sertype: *const cyclonedds_sys::ddsi_sertype,
     samples: *mut std::ffi::c_void,
@@ -160,8 +160,8 @@ pub unsafe extern "C" fn realloc_samples<T>(
 /// [`serdata_ops::to_sample`][`crate::internal::ffi::serdata_ops::to_sample`].
 ///
 /// ## Safety
-/// `pointers` must be non-null and must point to a valid pointer that was allocated
-/// via a `Box<T>`.
+/// `pointers` must be non-null and must point to a valid pointer that was
+/// allocated via a `Box<T>`.
 pub unsafe extern "C" fn free_samples<T>(
     _sertype: *const cyclonedds_sys::ddsi_sertype,
     pointers: *mut *mut std::ffi::c_void,
@@ -199,8 +199,10 @@ pub unsafe extern "C" fn free_samples<T>(
 /// Compares two [`Sertype`] instances for equality.
 ///
 /// # Safety
-/// - The `lhs` and `rhs` must point to `Sertype`s previously constructed by the Rust API.
-/// - The `type_name` field of the pointers must be a valid null-terminated string.
+/// - The `lhs` and `rhs` must point to `Sertype`s previously constructed by the
+///   Rust API.
+/// - The `type_name` field of the pointers must be a valid null-terminated
+///   string.
 pub unsafe extern "C" fn equal<T>(
     lhs: *const cyclonedds_sys::ddsi_sertype,
     rhs: *const cyclonedds_sys::ddsi_sertype,
@@ -218,7 +220,8 @@ where
 /// Compute a hash for a DDS data type.
 ///
 /// # Safety
-/// The provided `sertype` must be a valid sertype created through [`Sertype::new`].
+/// The provided `sertype` must be a valid sertype created through
+/// [`Sertype::new`].
 pub unsafe extern "C" fn hash<T>(sertype: *const cyclonedds_sys::ddsi_sertype) -> u32
 where
     T: crate::Topicable,
@@ -365,7 +368,8 @@ where
         false
     } else {
         let sample = unsafe { &*(sample.cast::<InternalSample<'_, T>>()) };
-        // TODO verify if the to_writer interface errors if it reaches the bounds of the buffer.
+        // TODO verify if the to_writer interface errors if it reaches the bounds of the
+        // buffer.
         match (
             crate::internal::serdata::Kind::try_from(serdata_kind),
             sample,

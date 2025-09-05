@@ -345,8 +345,8 @@ mod tests {
         sample.x.is_multiple_of(2)
     }
 
-    // NOTE: the general interface expects the key to be passed by ref (even if the key is trivially
-    // copyable and small).
+    // NOTE: the general interface expects the key to be passed by ref (even if the
+    // key is trivially copyable and small).
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn is_key_callback(key: &(u32, i32)) -> bool {
         key.0.is_multiple_of(2)

@@ -1,8 +1,8 @@
-//! The [`Sertype`] represents the extension point to thread through language-binding specific
-//! behavior through Cyclone.
+//! The [`Sertype`] represents the extension point to thread through
+//! language-binding specific behavior through Cyclone.
 //!
-//! The name of the corresponding type, whether the associated topic is keyed, and the
-//! set of interface functions are registered with Cyclone through the
+//! The name of the corresponding type, whether the associated topic is keyed,
+//! and the set of interface functions are registered with Cyclone through the
 //! [`cyclonedds_sys::ddsi_sertype`].
 
 use crate::internal::ffi;

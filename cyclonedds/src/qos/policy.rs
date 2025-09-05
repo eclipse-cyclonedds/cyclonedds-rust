@@ -544,9 +544,9 @@ pub enum ResourceLimit {
 impl ResourceLimit {
     #[must_use]
     fn as_ffi(self) -> i32 {
-        /// This is an invalid value on the Cyclone C side and will defer the failure of the in the
-        /// resource limit down to the later calls which are able to correctly propagate an error
-        /// out.
+        /// This is an invalid value on the Cyclone C side and will defer the
+        /// failure of the resource limit down to the later calls which are able
+        /// to correctly propagate an error out.
         const INVALID_LIMIT_IN_CYCLONE_C_LIB: i32 = 0;
         match self {
             ResourceLimit::Unlimited => cyclonedds_sys::DDS_LENGTH_UNLIMITED,
@@ -711,8 +711,8 @@ impl AsFfi for EntityName {
 
     #[inline]
     fn as_ffi(&self) -> Self::Target<'_> {
-        // TODO should this be moved to the construction of the name policy or deferred to the
-        // set_qos + construction of the objects with the QoS?O
+        // TODO should this be moved to the construction of the name policy or deferred
+        // to the set_qos + construction of the objects with the QoS?O
         std::ffi::CString::new(self.name.as_str())
             .expect("unable to safely create std::ffi::CString from entity name")
     }

@@ -84,8 +84,8 @@ mod tests {
         // Deliberately miscalculated.
         *MOCKED_MAX_SERIALIZED_CDR_SIZE.lock().unwrap() = DataKey::alignment();
 
-        // Check that the computed keyhash from the vec is the Big Endian CDR encoded form of the
-        // vec.
+        // Check that the computed keyhash from the vec is the Big Endian CDR encoded
+        // form of the vec.
         let cdr_key_hash = KeyHash::from_key::<Data>(&key, false).unwrap();
 
         let deserialized_key = cdr_encoding::from_bytes::<_, byteorder::BigEndian>(&cdr_key_hash.0)
@@ -100,8 +100,8 @@ mod tests {
         let cdr_key_hash = KeyHash::from_key::<Data>(&key, false);
         assert_eq!(cdr_key_hash, None);
 
-        // Check that even with the invalid serialization limit the keyhash under md5 still
-        // succeeds.
+        // Check that even with the invalid serialization limit the keyhash under md5
+        // still succeeds.
         let md5_key_hash_01 = KeyHash::from_key::<Data>(&key, true).unwrap();
 
         *MOCKED_MAX_SERIALIZED_CDR_SIZE.lock().unwrap() = 4 * 32 + 4;

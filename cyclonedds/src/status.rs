@@ -304,8 +304,10 @@ pub struct SampleLost {
 /// limits`](crate::qos::policy::ResourceLimits).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SampleRejectedReason {
-    /// TODO How can sample not rejected be a valid status for the sample rejected status?
-    /// should this be modeled as an Option in samplerejected?
+    // TODO How can sample not rejected be a valid status for the sample
+    // rejected status? should this be modeled as an Option in
+    // samplerejected?
+    /// The sample was not rejected.
     NotRejected,
     /// Rejected because the maximum number of instances has been reached.
     RejectedByInstancesLimit,
