@@ -117,6 +117,8 @@ macro_rules! impl_entity {
 
 impl_entity!(crate::Participant<'_>);
 impl_entity!(crate::Topic<'_, '_, T> where T: crate::Topicable);
+impl_entity!(crate::Publisher<'_, '_>);
+impl_entity!(crate::Subscriber<'_, '_>);
 
 #[cfg(test)]
 mod tests {
@@ -130,9 +132,13 @@ mod tests {
         let topic_name = crate::tests::topic::unique_name();
         let topic =
             crate::Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+        let publisher = crate::Publisher::new(&participant).unwrap();
+        let subscriber = crate::Subscriber::new(&participant).unwrap();
 
         assert_eq!(participant.id().inner, participant.inner);
         assert_eq!(topic.id().inner, topic.inner);
+        assert_eq!(publisher.id().inner, publisher.inner);
+        assert_eq!(subscriber.id().inner, subscriber.inner);
     }
 
     #[test]
