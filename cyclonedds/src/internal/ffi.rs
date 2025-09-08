@@ -457,5 +457,411 @@ pub fn dds_notify_readers(subscriber: cyclonedds_sys::dds_entity_t) -> Result<()
         .map(|_| ())
 }
 
+/// Create a reader under a participant or subscriber on a topic. This is
+/// primarily used by the [`Reader`][`crate::Reader`] wrapper.
+pub fn dds_create_reader(
+    participant_or_subscriber: cyclonedds_sys::dds_entity_t,
+    topic: cyclonedds_sys::dds_entity_t,
+    qos: Option<&cyclonedds_sys::dds_qos_t>,
+    listener: Option<&cyclonedds_sys::dds_listener_t>,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe {
+        cyclonedds_sys::dds_create_reader(
+            participant_or_subscriber,
+            topic,
+            qos.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+        )
+    }
+    .into_error()
+}
+
+/// Create a writer under a participant or publisher on a topic. This is
+/// primarily used by the [`Writer`][`crate::Writer`] wrapper.
+pub fn dds_create_writer(
+    participant_or_publisher: cyclonedds_sys::dds_entity_t,
+    topic: cyclonedds_sys::dds_entity_t,
+    qos: Option<&cyclonedds_sys::dds_qos_t>,
+    listener: Option<&cyclonedds_sys::dds_listener_t>,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe {
+        cyclonedds_sys::dds_create_writer(
+            participant_or_publisher,
+            topic,
+            qos.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+        )
+    }
+    .into_error()
+}
+
+pub fn dds_write<T>(writer: cyclonedds_sys::dds_entity_t, sample: &T) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let sample = InternalSample::SampleRef(sample);
+    let sample = (&raw const sample).cast();
+    unsafe { cyclonedds_sys::dds_write(writer, sample) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_write_with_timestamp<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    sample: &T,
+    timestamp: cyclonedds_sys::dds_time_t,
+) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let sample = InternalSample::SampleRef(sample);
+    let sample = (&raw const sample).cast();
+    unsafe { cyclonedds_sys::dds_write_ts(writer, sample, timestamp) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_write_flush(writer: cyclonedds_sys::dds_entity_t) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_write_flush(writer) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_register_instance<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    key: &T::Key,
+) -> Result<cyclonedds_sys::dds_instance_handle_t>
+where
+    T: crate::Topicable,
+{
+    let key = InternalSample::<T>::KeyRef(key);
+    let key = (&raw const key).cast();
+    let mut instance_handle = 0;
+    unsafe { cyclonedds_sys::dds_register_instance(writer, &raw mut instance_handle, key) }
+        .into_error()?;
+    Ok(instance_handle)
+}
+
+pub fn dds_unregister_instance<T>(writer: cyclonedds_sys::dds_entity_t, key: &T::Key) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let key = InternalSample::<T>::KeyRef(key);
+    let key = (&raw const key).cast();
+    unsafe { cyclonedds_sys::dds_unregister_instance(writer, key) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_unregister_instance_with_timestamp<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    key: &T::Key,
+    timestamp: cyclonedds_sys::dds_time_t,
+) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let key = InternalSample::<T>::KeyRef(key);
+    let key = (&raw const key).cast();
+    unsafe { cyclonedds_sys::dds_unregister_instance_ts(writer, key, timestamp) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_unregister_instance_by_handle(
+    writer: cyclonedds_sys::dds_entity_t,
+    instance_handle: cyclonedds_sys::dds_instance_handle_t,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_unregister_instance_ih(writer, instance_handle) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_unregister_instance_by_handle_with_timestamp(
+    writer: cyclonedds_sys::dds_entity_t,
+    instance_handle: cyclonedds_sys::dds_instance_handle_t,
+    timestamp: cyclonedds_sys::dds_time_t,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_unregister_instance_ih_ts(writer, instance_handle, timestamp) }
+        .into_error()?;
+    Ok(())
+}
+
+pub fn dds_lookup_instance<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    key: &T::Key,
+) -> Option<cyclonedds_sys::dds_instance_handle_t>
+where
+    T: crate::Topicable,
+{
+    let key = InternalSample::<T>::KeyRef(key);
+    let key = (&raw const key).cast();
+    let instance_handle = unsafe { cyclonedds_sys::dds_lookup_instance(writer, key) };
+    if instance_handle == u64::from(cyclonedds_sys::DDS_HANDLE_NIL) {
+        None
+    } else {
+        Some(instance_handle)
+    }
+}
+
+pub fn dds_write_dispose<T>(writer: cyclonedds_sys::dds_entity_t, data: &T) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let sample = InternalSample::SampleRef(data);
+    let sample = (&raw const sample).cast();
+    unsafe { cyclonedds_sys::dds_writedispose(writer, sample) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_write_dispose_with_timestamp<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    data: &T,
+    timestamp: cyclonedds_sys::dds_time_t,
+) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let sample = InternalSample::SampleRef(data);
+    let sample = (&raw const sample).cast();
+    unsafe { cyclonedds_sys::dds_writedispose_ts(writer, sample, timestamp) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_dispose<T>(writer: cyclonedds_sys::dds_entity_t, key: &T::Key) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let key = InternalSample::<T>::KeyRef(key);
+    let key = (&raw const key).cast();
+    unsafe { cyclonedds_sys::dds_dispose(writer, key) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_dispose_with_timestamp<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    key: &T::Key,
+    timestamp: cyclonedds_sys::dds_time_t,
+) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let key = InternalSample::<T>::KeyRef(key);
+    let key = (&raw const key).cast();
+    unsafe { cyclonedds_sys::dds_dispose_ts(writer, key, timestamp) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_dispose_instance_by_handle(
+    writer: cyclonedds_sys::dds_entity_t,
+    instance_handle: cyclonedds_sys::dds_instance_handle_t,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_dispose_ih(writer, instance_handle) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_dispose_instance_by_handle_with_timestamp(
+    writer: cyclonedds_sys::dds_entity_t,
+    instance_handle: cyclonedds_sys::dds_instance_handle_t,
+    timestamp: cyclonedds_sys::dds_time_t,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_dispose_ih_ts(writer, instance_handle, timestamp) }
+        .into_error()?;
+    Ok(())
+}
+
+pub fn dds_get_matched_subscriptions(
+    writer: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<cyclonedds_sys::dds_instance_handle_t>> {
+    let count = usize::try_from(
+        unsafe { cyclonedds_sys::dds_get_matched_subscriptions(writer, std::ptr::null_mut(), 0) }
+            .into_error()?,
+    )
+    .expect("count is a non-negative i32 and so always fits in usize");
+
+    let mut matched = vec![0; count];
+    if count > 0 {
+        unsafe {
+            cyclonedds_sys::dds_get_matched_subscriptions(writer, matched.as_mut_ptr(), count)
+        }
+        .into_error()
+        .map(|count| {
+            let count = usize::try_from(count)
+                .expect("count is a non-negative i32 and so always fits in a usize");
+            debug_assert!(
+                count <= matched.len(),
+                "actual number of subscriptions exceeds expected number of subscriptions"
+            );
+            matched.truncate(count);
+            matched
+        })
+    } else {
+        Ok(matched)
+    }
+}
+
+pub(crate) unsafe extern "C" fn dds_read_with_collector_callback<T>(
+    arg: *mut std::ffi::c_void,
+    info: *const cyclonedds_sys::dds_sample_info_t,
+    sertype: *const cyclonedds_sys::ddsi_sertype,
+    serdata: *mut cyclonedds_sys::ddsi_serdata,
+) -> cyclonedds_sys::dds_return_t
+where
+    T: crate::Topicable,
+{
+    let buffer = unsafe { &mut *(arg.cast::<Vec<crate::sample::SampleOrKey<T>>>()) };
+
+    let info = unsafe { &*info };
+    let mut _sertype = std::mem::ManuallyDrop::new(unsafe {
+        Box::from_raw(sertype as *mut crate::internal::sertype::Sertype<T>)
+    });
+    let mut serdata = std::mem::ManuallyDrop::new(unsafe {
+        Box::from_raw(serdata.cast::<crate::internal::serdata::Serdata<T>>())
+    });
+
+    let valid_data = info.valid_data;
+    let info: crate::sample::Info = info.into();
+
+    if valid_data {
+        let sample = serdata.sample().clone();
+        buffer.push(crate::sample::SampleOrKey::new_sample(sample, info));
+        cyclonedds_sys::DDS_RETCODE_OK.cast_signed()
+    } else {
+        let key = serdata.key().clone();
+        buffer.push(crate::sample::SampleOrKey::new_key(key, info));
+        cyclonedds_sys::DDS_RETCODE_OK.cast_signed()
+    }
+}
+
+pub(crate) mod read_operation {
+    type Collector = unsafe extern "C" fn(
+        reader_or_condition: cyclonedds_sys::dds_entity_t,
+        maxs: u32,
+        handle: cyclonedds_sys::dds_instance_handle_t,
+        mask: u32,
+        collect_sample: cyclonedds_sys::dds_read_with_collector_fn_t,
+        collect_sample_arg: *mut std::ffi::c_void,
+    ) -> cyclonedds_sys::dds_return_t;
+
+    pub trait ReadOperation {
+        const COLLECTOR: Collector;
+    }
+
+    pub struct Peek;
+    pub struct Read;
+    pub struct Take;
+
+    impl ReadOperation for Peek {
+        const COLLECTOR: Collector = cyclonedds_sys::dds_peek_with_collector;
+    }
+    impl ReadOperation for Read {
+        const COLLECTOR: Collector = cyclonedds_sys::dds_read_with_collector;
+    }
+    impl ReadOperation for Take {
+        const COLLECTOR: Collector = cyclonedds_sys::dds_take_with_collector;
+    }
+}
+
+pub(crate) fn dds_peek_read_take<T, RO>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::sample::SampleOrKey<T>>>
+where
+    T: crate::Topicable,
+    RO: read_operation::ReadOperation,
+{
+    let mut samples = Vec::new();
+
+    let handle = Default::default();
+    let mask = Default::default();
+    let maxs = i32::MAX as u32;
+    let len = usize::try_from(
+        unsafe {
+            RO::COLLECTOR(
+                reader_or_condition,
+                maxs,
+                handle,
+                mask,
+                Some(dds_read_with_collector_callback::<T>),
+                (&raw mut samples).cast(),
+            )
+        }
+        .into_error()?,
+    )
+    .expect("len is a non-negative i32 and so always fits in usize");
+
+    assert_eq!(
+        len,
+        samples.len(),
+        "number of samples reported from the C side does not match the final number in the buffer"
+    );
+
+    Ok(samples)
+}
+
+pub fn dds_take<T>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::sample::SampleOrKey<T>>>
+where
+    T: crate::Topicable,
+{
+    dds_peek_read_take::<T, read_operation::Take>(reader_or_condition)
+}
+
+pub fn dds_read<T>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::sample::SampleOrKey<T>>>
+where
+    T: crate::Topicable,
+{
+    dds_peek_read_take::<T, read_operation::Read>(reader_or_condition)
+}
+
+pub fn dds_peek<T>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::sample::SampleOrKey<T>>>
+where
+    T: crate::Topicable,
+{
+    dds_peek_read_take::<T, read_operation::Peek>(reader_or_condition)
+}
+
+pub fn dds_reader_wait_for_historical_data(
+    reader: cyclonedds_sys::dds_entity_t,
+    timeout: cyclonedds_sys::dds_duration_t,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_reader_wait_for_historical_data(reader, timeout) }
+        .into_error()
+        .map(|_| ())
+}
+
+pub fn dds_get_matched_publications(
+    reader: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<cyclonedds_sys::dds_instance_handle_t>> {
+    let count = usize::try_from(
+        unsafe { cyclonedds_sys::dds_get_matched_publications(reader, std::ptr::null_mut(), 0) }
+            .into_error()?,
+    )
+    .expect("count is a non-negative i32 and so always fits in usize");
+
+    let mut matched = vec![0; count];
+
+    if count > 0 {
+        unsafe { cyclonedds_sys::dds_get_matched_publications(reader, matched.as_mut_ptr(), count) }
+            .into_error()
+            .map(|count| {
+                let count = usize::try_from(count)
+                    .expect("count is a non-negative i32 and so always fits in a usize");
+                debug_assert!(
+                    count <= matched.len(),
+                    "actual number of publications exceeds expected number of publications"
+                );
+                matched.truncate(count);
+                matched
+            })
+    } else {
+        Ok(matched)
+    }
+}
+
+pub fn dds_get_participant(
+    entity: cyclonedds_sys::dds_entity_t,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe { cyclonedds_sys::dds_get_participant(entity) }.into_error()
+}
+
 #[cfg(test)]
 mod tests;
