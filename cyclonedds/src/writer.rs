@@ -47,6 +47,25 @@ where
     T: crate::Topicable,
 {
     /// Creates a new [`WriterBuilder`] for the given [`Topic`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::WriterBuilder;
+    /// use cyclonedds::{Domain, Participant, Topic};
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let domain = Domain::default();
+    /// let participant = Participant::new(&domain)?;
+    /// let topic = Topic::new(&participant, "MyTopic")?;
+    /// let writer_builder = WriterBuilder::<Data>::new(&topic);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn new(topic: &'t Topic<'d, 'p, T>) -> Self {
         Self {
@@ -58,6 +77,30 @@ where
     }
 
     /// Sets the [`QoS`](crate::QoS) for this writer builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::WriterBuilder;
+    /// use cyclonedds::qos::policy;
+    /// use cyclonedds::{Duration, QoS};
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let qos = QoS::new().with_reliability(policy::Reliability::Reliable {
+    ///     max_blocking_time: Duration::from_millis(100),
+    /// });
+    /// let writer_builder = WriterBuilder::<Data>::new(&topic).with_qos(&qos);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
@@ -65,6 +108,29 @@ where
     }
 
     /// Sets the [`Publisher`](crate::Publisher) on this writer builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Publisher;
+    /// use cyclonedds::WriterListener;
+    /// use cyclonedds::builder::WriterBuilder;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let publisher = Publisher::new(&participant)?;
+    ///
+    /// let writer_builder = WriterBuilder::<Data>::new(&topic).with_publisher(&publisher);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_publisher(mut self, publisher: &'p Publisher<'d, 'p>) -> Self {
         self.publisher = Some(publisher);
@@ -106,6 +172,28 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the writer failed to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::QoS;
+    /// use cyclonedds::builder::WriterBuilder;
+    /// use cyclonedds::qos::policy;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let qos = QoS::new().with_durability(policy::Durability::TransientLocal);
+    /// let writer = WriterBuilder::<Data>::new(&topic).with_qos(&qos).build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn build(self) -> Result<Writer<'d, 'p, 't, T>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
@@ -140,6 +228,28 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Writer;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn new(topic: &'t Topic<'d, 'p, T>) -> Result<Self> {
         Self::builder(topic).build()
     }
@@ -183,6 +293,27 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writers fails to write the
     /// sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write(&Data { x: 1, y: 2 })?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn write(&self, sample: &T) -> Result<()> {
         ffi::dds_write(self.inner, sample)
     }
@@ -196,6 +327,29 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to write the
     /// sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Time;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write_with_timestamp(&Data::default(), Time::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn write_with_timestamp(&self, sample: &T, timestamp: crate::Time) -> Result<()> {
         ffi::dds_write_with_timestamp(self.inner, sample, timestamp.inner)
     }
@@ -208,6 +362,28 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to flush.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write(&Data::default())?;
+    /// writer.flush()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn flush(&self) -> Result<()> {
         ffi::dds_write_flush(self.inner)
     }
@@ -220,6 +396,30 @@ where
     /// Returns an [`Error`](crate::Error) if the timeout elapses before all
     /// acknowledgements are received or if the writer encounters an unexpected
     /// error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Duration;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write(&Data::default())?;
+    /// writer.wait_for_acks(Duration::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn wait_for_acks(&self, timeout: crate::Duration) -> Result<()> {
         ffi::dds_wait_for_acks(self.inner, timeout.inner)
     }
@@ -235,6 +435,32 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to retrieve the
     /// matched subscriptions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// use cyclonedds::entity::Entity;
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let reader = Reader::new(&topic)?;
+    ///
+    /// let matched = writer.matched_subscriptions()?;
+    /// assert_eq!(matched[0], reader.instance_handle()?);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn matched_subscriptions(&self) -> Result<Vec<crate::entity::InstanceHandle>> {
         ffi::dds_get_matched_subscriptions(self.inner).map(|matched| {
             matched
@@ -255,6 +481,27 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to register the
     /// instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let handle = writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn register_instance(&self, key: &T::Key) -> Result<crate::entity::InstanceHandle> {
         ffi::dds_register_instance::<T>(self.inner, key)
             .map(|inner| crate::entity::InstanceHandle { inner })
@@ -269,6 +516,28 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to unregister
     /// the instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// writer.unregister_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn unregister_instance(&self, key: &T::Key) -> Result<()> {
         ffi::dds_unregister_instance::<T>(self.inner, key)
     }
@@ -280,6 +549,28 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to unregister
     /// the instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let handle = writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// writer.unregister_instance_by_handle(handle)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn unregister_instance_by_handle(
         &self,
         instance_handle: crate::entity::InstanceHandle,
@@ -293,6 +584,29 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to unregister
     /// the instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Time;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.unregister_instance_with_timestamp(&Key::<Data> { x: 1, y: 2 }, Time::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn unregister_instance_with_timestamp(
         &self,
         key: &T::Key,
@@ -309,6 +623,30 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to unregister
     /// the instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Time;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let handle = writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// writer.unregister_instance_by_handle_with_timestamp(handle, Time::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn unregister_instance_by_handle_with_timestamp(
         &self,
         instance_handle: crate::entity::InstanceHandle,
@@ -324,6 +662,32 @@ where
     /// Returns the [`InstanceHandle`](crate::entity::InstanceHandle) for the
     /// instance identified by `key`, or `None` if the instance is not
     /// registered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let handle = writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// assert_eq!(
+    ///     writer.lookup_instance(&Key::<Data> { x: 1, y: 2 }),
+    ///     Some(handle)
+    /// );
+    /// assert_eq!(writer.lookup_instance(&Key::<Data> { x: 9, y: 9 }), None);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn lookup_instance(&self, key: &T::Key) -> Option<crate::entity::InstanceHandle> {
         ffi::dds_lookup_instance::<T>(self.inner, key)
             .map(|inner| crate::entity::InstanceHandle { inner })
@@ -338,6 +702,27 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to write or
     /// dispose.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write_dispose(&Data { x: 1, y: 2 })?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn write_dispose(&self, data: &T) -> Result<()> {
         ffi::dds_write_dispose(self.inner, data)
     }
@@ -349,6 +734,29 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to write or
     /// dispose.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Time;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write_dispose_with_timestamp(&Data::default(), Time::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn write_dispose_with_timestamp(&self, data: &T, timestamp: crate::Time) -> Result<()> {
         ffi::dds_write_dispose_with_timestamp(self.inner, data, timestamp.inner)
     }
@@ -362,6 +770,28 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to dispose the
     /// instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.write(&Data { x: 1, y: 2 })?;
+    /// writer.dispose(&Key::<Data> { x: 1, y: 2 })?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn dispose(&self, key: &T::Key) -> Result<()> {
         ffi::dds_dispose::<T>(self.inner, key)
     }
@@ -372,6 +802,29 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to dispose the
     /// instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Time;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// writer.dispose_with_timestamp(&Key::<Data> { x: 1, y: 2 }, Time::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn dispose_with_timestamp(&self, key: &T::Key, timestamp: crate::Time) -> Result<()> {
         ffi::dds_dispose_with_timestamp::<T>(self.inner, key, timestamp.inner)
     }
@@ -383,6 +836,28 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to dispose the
     /// instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let handle = writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// writer.dispose_instance_by_handle(handle)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn dispose_instance_by_handle(
         &self,
         instance_handle: crate::entity::InstanceHandle,
@@ -398,6 +873,30 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the writer fails to dispose the
     /// instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Time;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Key};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// #     #[dds(key)]
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    /// let handle = writer.register_instance(&Key::<Data> { x: 1, y: 2 })?;
+    /// writer.dispose_instance_by_handle_with_timestamp(handle, Time::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn dispose_instance_by_handle_with_timestamp(
         &self,
         instance_handle: crate::entity::InstanceHandle,

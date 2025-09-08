@@ -41,6 +41,24 @@ where
     T: crate::Topicable,
 {
     /// Creates a new [`TopicBuilder`] for the given [`Participant`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::TopicBuilder;
+    /// use cyclonedds::{Domain, Participant};
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let domain = Domain::default();
+    /// let participant = Participant::new(&domain)?;
+    /// let topic_builder = TopicBuilder::<Data>::new(&participant, "MyTopic");
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn new(participant: &'p Participant<'d>, topic_name: &'n str) -> Self {
         Self {
@@ -52,6 +70,29 @@ where
     }
 
     /// Sets the [`QoS`](crate::QoS) for this topic builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::TopicBuilder;
+    /// use cyclonedds::qos::policy;
+    /// use cyclonedds::{Duration, QoS};
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let qos = QoS::new().with_reliability(policy::Reliability::Reliable {
+    ///     max_blocking_time: Duration::from_millis(100),
+    /// });
+    /// let topic_builder = TopicBuilder::<Data>::new(&participant, "MyTopic").with_qos(&qos);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
@@ -93,6 +134,29 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the topic failed to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::QoS;
+    /// use cyclonedds::builder::TopicBuilder;
+    /// use cyclonedds::qos::policy;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let qos = QoS::new().with_durability(policy::Durability::TransientLocal);
+    /// let topic = TopicBuilder::<Data>::new(&participant, "MyTopic")
+    ///     .with_qos(&qos)
+    ///     .build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn build(self) -> Result<Topic<'d, 'p, T>> {
         let name = std::ffi::CString::new(self.topic_name)
             .map_err(|_err| crate::error::Error::BadParameter)?;
@@ -140,6 +204,25 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if topic fails to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    /// use cyclonedds::Topic;
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn new(participant: &'p Participant<'d>, topic_name: &str) -> Result<Self> {
         Self::builder(participant, topic_name).build()
     }
@@ -147,6 +230,25 @@ where
     /// Returns a [`TopicBuilder`](crate::builder::TopicBuilder) for
     /// constructing a topic with custom [`QoS`](crate::QoS) or a
     /// [`listener`](crate::listener::TopicListener).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Topic;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::builder(&participant, "MyTopic").build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn builder<'q, 'n>(
         participant: &'p Participant<'d>,

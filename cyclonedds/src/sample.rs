@@ -130,12 +130,57 @@ where
     }
 
     /// Returns the metadata associated with this sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = &reader.take()?[0];
+    /// let info = sample.info();
+    /// println!("source timestamp: {:?}", info.source_timestamp);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub const fn info(&self) -> &Info {
         &self.info
     }
 
     /// Returns a reference to the full sample payload, or `None` if this is a
     /// key-only sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = &reader.take()?[0];
+    /// if let Some(data) = sample.sample() {
+    ///     println!("payload: {data:?}");
+    /// }
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn sample(&self) -> Option<&T> {
         match &self.inner {
             SampleOrKeyInner::Sample { sample, .. } => Some(sample),
@@ -145,6 +190,29 @@ where
 
     /// Consumes `self` and returns the full sample payload, or `None` if this
     /// is a key-only sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// if let Some(data) = sample.into_sample() {
+    ///     println!("payload: {data:?}");
+    /// }
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn into_sample(self) -> Option<T> {
         match self.inner {
             SampleOrKeyInner::Sample { sample, .. } => Some(*sample),
@@ -153,12 +221,55 @@ where
     }
 
     /// Returns `true` if this is a full sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// assert!(sample.is_sample());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub const fn is_sample(&self) -> bool {
         matches!(self.inner, SampleOrKeyInner::Sample { .. })
     }
 
     /// Returns `true` if this is a full sample and `f` returns `true` for its
     /// payload.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// assert!(sample.is_sample_and(|data| data.x == 0));
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn is_sample_and(&self, f: impl FnOnce(&T) -> bool) -> bool {
         match &self.inner {
             SampleOrKeyInner::Sample { sample, .. } => f(sample),
@@ -168,6 +279,29 @@ where
 
     /// Returns a reference to the instance key, or `None` if this is a full
     /// sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// if let Some(key) = sample.key() {
+    ///     println!("key-only notification: {key:?}");
+    /// }
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn key(&self) -> Option<&T::Key> {
         match &self.inner {
             SampleOrKeyInner::Sample { .. } => None,
@@ -177,6 +311,29 @@ where
 
     /// Consumes `self` and returns the instance key, or `None` if this is a
     /// full sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// if let Some(key) = sample.into_key() {
+    ///     println!("key-only notification: {key:?}");
+    /// }
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn into_key(self) -> Option<T::Key> {
         match self.inner {
             SampleOrKeyInner::Sample { .. } => None,
@@ -185,12 +342,55 @@ where
     }
 
     /// Returns `true` if this is a key-only sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// assert!(!sample.is_key());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub const fn is_key(&self) -> bool {
         matches!(self.inner, SampleOrKeyInner::Key { .. })
     }
 
     /// Returns `true` if this is a key-only sample and `f` returns `true` for
     /// its key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    /// let sample = reader.take()?.into_iter().next().unwrap();
+    /// assert!(!sample.is_key_and(|key| key.x == 1));
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn is_key_and(&self, f: impl FnOnce(&T::Key) -> bool) -> bool {
         match &self.inner {
             SampleOrKeyInner::Sample { .. } => false,
@@ -200,6 +400,33 @@ where
 
     /// Returns a borrowed [`View`] of this sample for pattern matching without
     /// triggering key or sample materialisation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::sample::View;
+    /// # use cyclonedds::{Domain, Participant, Topic, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// # writer.write(&Data::default())?;
+    ///
+    /// for sample in reader.take()? {
+    ///     match sample.view() {
+    ///         View::Sample(data) => println!("sample: {data:?}"),
+    ///         View::Key(key) => println!("key-only: {key:?}"),
+    ///     }
+    /// }
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn view(&self) -> View<'_, T> {
         match &self.inner {
             SampleOrKeyInner::Sample { sample, .. } => View::Sample(sample.as_ref()),
@@ -224,6 +451,31 @@ where
 /// Obtained via [`SampleOrKey::view`]. Distinguishes between a full sample and
 /// a key-only sample without consuming the [`SampleOrKey`] and without
 /// implicitly materializing the other half.
+///
+/// # Examples
+///
+/// ```
+/// use cyclonedds::sample::View;
+/// # use cyclonedds::{Reader, Topic};
+/// # #[derive(
+/// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+/// # )]
+/// # struct Data {
+/// #     x: i32,
+/// # }
+/// # let domain = cyclonedds::Domain::default();
+/// # let participant = cyclonedds::Participant::new(&domain)?;
+/// # let topic = Topic::<Data>::new(&participant, "MyData")?;
+/// # let reader = Reader::<Data>::new(&topic)?;
+///
+/// for sample in reader.read()? {
+///     match sample.view() {
+///         View::Sample(sample) => println!("got sample: {sample:?}"),
+///         View::Key(key) => println!("got key-only: {key:?}"),
+///     }
+/// }
+/// # Ok::<_, cyclonedds::Error>(())
+/// ```
 pub enum View<'sample, T>
 where
     T: Topicable,

@@ -29,6 +29,18 @@ pub struct SubscriberBuilder<'domain, 'participant, 'qos> {
 
 impl<'d, 'p, 'q> SubscriberBuilder<'d, 'p, 'q> {
     /// Creates a new [`SubscriberBuilder`] for the given [`Participant`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::SubscriberBuilder;
+    /// use cyclonedds::{Domain, Participant};
+    ///
+    /// let domain = Domain::default();
+    /// let participant = Participant::new(&domain)?;
+    /// let subscriber_builder = SubscriberBuilder::new(&participant);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn new(participant: &'p Participant<'d>) -> Self {
         Self {
@@ -39,6 +51,23 @@ impl<'d, 'p, 'q> SubscriberBuilder<'d, 'p, 'q> {
     }
 
     /// Sets the [`QoS`](crate::QoS) for this subscriber builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::SubscriberBuilder;
+    /// use cyclonedds::qos::policy;
+    /// use cyclonedds::{Duration, QoS};
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let qos = QoS::new().with_reliability(policy::Reliability::Reliable {
+    ///     max_blocking_time: Duration::from_millis(100),
+    /// });
+    /// let subscriber_builder = SubscriberBuilder::new(&participant).with_qos(&qos);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
@@ -74,6 +103,23 @@ impl<'d, 'p, 'q> SubscriberBuilder<'d, 'p, 'q> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the subscriber failed to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::QoS;
+    /// use cyclonedds::builder::SubscriberBuilder;
+    /// use cyclonedds::qos::policy;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let qos = QoS::new().with_durability(policy::Durability::TransientLocal);
+    /// let subscriber = SubscriberBuilder::new(&participant)
+    ///     .with_qos(&qos)
+    ///     .build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn build(self) -> Result<Subscriber<'d, 'p>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
@@ -101,6 +147,18 @@ impl<'d, 'p> Subscriber<'d, 'p> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the subscriber fails to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Subscriber;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let subscriber = Subscriber::new(&participant)?;
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn new(participant: &'p Participant<'d>) -> Result<Self> {
         Self::builder(participant).build()
     }
@@ -108,6 +166,25 @@ impl<'d, 'p> Subscriber<'d, 'p> {
     /// Returns a [`SubscriberBuilder`](crate::builder::SubscriberBuilder) for
     /// constructing a subscriber with custom [`QoS`](crate::QoS) or a
     /// [`listener`](crate::listener::SubscriberListener).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::{
+    ///     QoS, Subscriber,
+    ///     qos::policy::{Durability, Presentation},
+    /// };
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let qos = QoS::new().with_presentation(Presentation::Topic {
+    ///     coherent_access: true,
+    ///     ordered_access: true,
+    /// });
+    /// let subscriber = Subscriber::builder(&participant).with_qos(&qos).build()?;
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn builder<'q>(participant: &'p Participant<'d>) -> SubscriberBuilder<'d, 'p, 'q> {
         SubscriberBuilder::new(participant)
@@ -133,6 +210,19 @@ impl<'d, 'p> Subscriber<'d, 'p> {
     ///
     /// Returns an [`Error`](crate::Error) if the subscriber fails to notify the
     /// readers.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cyclonedds::Subscriber;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let subscriber = Subscriber::new(&participant)?;
+    /// subscriber.notify_readers()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn notify_readers(&self) -> Result<()> {
         ffi::dds_notify_readers(self.inner)
     }

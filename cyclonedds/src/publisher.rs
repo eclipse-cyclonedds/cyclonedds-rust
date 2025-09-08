@@ -29,6 +29,18 @@ pub struct PublisherBuilder<'domain, 'participant, 'qos> {
 
 impl<'d, 'p, 'q> PublisherBuilder<'d, 'p, 'q> {
     /// Creates a new [`PublisherBuilder`] for the given [`Participant`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::PublisherBuilder;
+    /// use cyclonedds::{Domain, Participant};
+    ///
+    /// let domain = Domain::default();
+    /// let participant = Participant::new(&domain)?;
+    /// let publisher_builder = PublisherBuilder::new(&participant);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn new(participant: &'p Participant<'d>) -> Self {
         Self {
@@ -39,6 +51,23 @@ impl<'d, 'p, 'q> PublisherBuilder<'d, 'p, 'q> {
     }
 
     /// Sets the [`QoS`](crate::QoS) for this publisher builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::PublisherBuilder;
+    /// use cyclonedds::qos::policy;
+    /// use cyclonedds::{Duration, QoS};
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let qos = QoS::new().with_reliability(policy::Reliability::Reliable {
+    ///     max_blocking_time: Duration::from_millis(100),
+    /// });
+    /// let publisher_builder = PublisherBuilder::new(&participant).with_qos(&qos);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
@@ -73,6 +102,21 @@ impl<'d, 'p, 'q> PublisherBuilder<'d, 'p, 'q> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the publisher failed to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::QoS;
+    /// use cyclonedds::builder::PublisherBuilder;
+    /// use cyclonedds::qos::policy;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let qos = QoS::new().with_durability(policy::Durability::TransientLocal);
+    /// let publisher = PublisherBuilder::new(&participant).with_qos(&qos).build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn build(self) -> Result<Publisher<'d, 'p>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
@@ -100,6 +144,18 @@ impl<'d, 'p> Publisher<'d, 'p> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the publisher fails to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Publisher;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let publisher = Publisher::new(&participant)?;
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn new(participant: &'p Participant<'d>) -> Result<Self> {
         Self::builder(participant).build()
     }
@@ -107,6 +163,25 @@ impl<'d, 'p> Publisher<'d, 'p> {
     /// Returns a [`PublisherBuilder`](crate::builder::PublisherBuilder) for
     /// constructing a publisher with custom [`QoS`](crate::QoS) or a
     /// [`listener`](crate::listener::PublisherListener).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::{
+    ///     Publisher, QoS,
+    ///     qos::policy::{Durability, Presentation},
+    /// };
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let qos = QoS::new().with_presentation(Presentation::Topic {
+    ///     coherent_access: true,
+    ///     ordered_access: true,
+    /// });
+    /// let publisher = Publisher::builder(&participant).with_qos(&qos).build()?;
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn builder<'q>(participant: &'p Participant<'d>) -> PublisherBuilder<'d, 'p, 'q> {
         PublisherBuilder::new(participant)
@@ -130,6 +205,41 @@ impl<'d, 'p> Publisher<'d, 'p> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if publisher fails to suspend.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cyclonedds::{Topic, Writer};
+    /// # use cyclonedds::{Domain, Participant, Publisher};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    ///
+    /// // Create the publisher.
+    /// let publisher = Publisher::new(&participant)?;
+    ///
+    /// // Create two Writers under the publisher.
+    /// let writer01 = Writer::builder(&topic).with_publisher(&publisher).build()?;
+    /// let writer02 = Writer::builder(&topic).with_publisher(&publisher).build()?;
+    ///
+    /// // Suspend all the writers.
+    /// publisher.suspend()?;
+    ///
+    /// writer01.write(&Data { x: 0, y: 1 })?;
+    /// writer02.write(&Data { x: 2, y: 3 })?;
+    ///
+    /// // Resume all the writers.
+    /// publisher.resume()?;
+    ///
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn suspend(&self) -> Result<()> {
         ffi::dds_suspend(self.inner)
     }
@@ -150,6 +260,41 @@ impl<'d, 'p> Publisher<'d, 'p> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the publisher fails to resume.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cyclonedds::{Topic, Writer};
+    /// # use cyclonedds::{Domain, Participant, Publisher};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    ///
+    /// // Create the publisher.
+    /// let publisher = Publisher::new(&participant)?;
+    ///
+    /// // Create two Writers under the publisher.
+    /// let writer01 = Writer::builder(&topic).with_publisher(&publisher).build()?;
+    /// let writer02 = Writer::builder(&topic).with_publisher(&publisher).build()?;
+    ///
+    /// // Suspend all the writers.
+    /// publisher.suspend()?;
+    ///
+    /// writer01.write(&Data { x: 0, y: 1 })?;
+    /// writer02.write(&Data { x: 2, y: 3 })?;
+    ///
+    /// // Resume all the writers.
+    /// publisher.resume()?;
+    ///
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn resume(&self) -> Result<()> {
         ffi::dds_resume(self.inner)
     }
@@ -170,6 +315,19 @@ impl<'d, 'p> Publisher<'d, 'p> {
     ///
     /// Returns an [`Error`](crate::Error) if the timeout elapses before all
     /// acknowledgements are received or if the publisher returns an error.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cyclonedds::Duration;
+    /// # use cyclonedds::{Domain, Participant, Publisher};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let publisher = Publisher::new(&participant)?;
+    /// publisher.wait_for_acks(Duration::from_secs(1))?;
+    /// Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn wait_for_acks(&self, timeout: crate::Duration) -> Result<()> {
         ffi::dds_wait_for_acks(self.inner, timeout.inner)
     }

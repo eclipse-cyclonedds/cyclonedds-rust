@@ -22,6 +22,30 @@ pub struct EntityId {
 /// Common interface implemented by all members of the DDS entity hierarchy.
 pub trait Entity {
     /// Returns the [`EntityId`] of this entity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Reader, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // The reader and the writer have distinct IDs.
+    /// assert_ne!(reader.id(), writer.id());
+    ///
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn id(&self) -> EntityId;
 
     /// Returns the [`InstanceHandle`] of this entity.
@@ -30,18 +54,107 @@ pub trait Entity {
     ///
     /// Returns an [`Error`](crate::Error) specifying the reason if the instance
     /// handle fails to be retrieved.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Reader, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // The reader and the writer have distinct instance handles.
+    /// assert_ne!(reader.instance_handle()?, writer.instance_handle()?);
+    ///
+    /// // Instance handles can be used to identify entities across various API
+    /// // calls. For example, the writer's handle appears in the set of matched
+    /// // publications.
+    /// let matched = reader.matched_publications()?;
+    /// assert_eq!(matched[0], writer.instance_handle()?);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn instance_handle(&self) -> Result<InstanceHandle> {
         let entity = self.id();
         let inner = ffi::dds_get_instance_handle(entity.inner)?;
         Ok(InstanceHandle { inner })
     }
 
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Reader, Status, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    ///
+    /// // The reader has been created but nothing in particular has happened in
+    /// // terms of status changes.
+    /// let changed = reader.status_changes()?;
+    /// assert_eq!(changed, Status::empty());
+    ///
+    /// // The writer that is created will match with the reader.
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // After a writer matches, the reader reports a status change.
+    /// let changed = reader.status_changes()?;
+    /// assert!(changed.contains(Status::SubscriptionMatched));
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn status_changes(&self) -> Result<Status> {
         let entity = self.id();
         let status = ffi::dds_get_status_changes(entity.inner)?;
         Status::from_bits(status).ok_or(crate::error::Error::BadParameter)
     }
 
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Reader, Status, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // The reader has matched with the writer, so its status should have
+    /// // updated.
+    /// let status = reader.take_status(Some(Status::SubscriptionMatched))?;
+    /// assert!(status.contains(Status::SubscriptionMatched));
+    ///
+    /// // The flag has been cleared; a second take returns empty.
+    /// let cleared = reader.take_status(Some(Status::SubscriptionMatched))?;
+    /// assert!(cleared.is_empty());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn take_status(&self, mask: Option<Status>) -> Result<Status> {
         let entity = self.id();
         let mask = mask.unwrap_or(Status::all()).bits();
@@ -57,6 +170,35 @@ pub trait Entity {
     /// - Returns an [`Error`](crate::Error) if the status bits of the
     ///   corresponding entity could not be retrieved (e.g. the entity no longer
     ///   exists).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Reader, Status, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // The reader has matched with the writer, so its status should have
+    /// // updated.
+    /// let status = reader.read_status(Some(Status::SubscriptionMatched))?;
+    /// assert!(status.contains(Status::SubscriptionMatched));
+    ///
+    /// // The flag is preserved; a second read returns the same value.
+    /// let same = reader.read_status(Some(Status::SubscriptionMatched))?;
+    /// assert_eq!(status, same);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn read_status(&self, mask: Option<Status>) -> Result<Status> {
         let entity = self.id();
         let mask = mask.unwrap_or(Status::all()).bits();
@@ -75,6 +217,32 @@ pub trait Entity {
     /// - Returns [`BadParameter`](crate::Error::BadParameter) if the retrieved
     ///   bits do not correspond to a valid [`Status`].
     ///
+    /// # Examples
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Status, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // Get the initial active status mask.
+    /// assert_eq!(
+    ///     writer.status_mask()?,
+    ///     Status::OfferedDeadlineMissed
+    ///         | Status::OfferedIncompatibleQoS
+    ///         | Status::LivelinessLost
+    ///         | Status::PublicationMatched
+    /// );
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn status_mask(&self) -> Result<Status> {
         let entity = self.id();
         let mask = ffi::dds_get_status_mask(entity.inner)?;
@@ -91,6 +259,29 @@ pub trait Entity {
     /// - Returns an [`Error`](crate::Error) if the status mask of the
     ///   corresponding entity could not be set (e.g. the entity no longer
     ///   exists).
+    ///
+    /// # Examples
+    /// ```
+    /// use cyclonedds::entity::Entity;
+    /// use cyclonedds::{Status, Topic, Writer};
+    ///
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let domain = cyclonedds::Domain::default();
+    /// # let participant = cyclonedds::Participant::new(&domain)?;
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // Set the active status mask.
+    /// writer.set_status_mask(Status::PublicationMatched)?;
+    /// // Get the active status mask.
+    /// assert_eq!(writer.status_mask()?, Status::PublicationMatched);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     fn set_status_mask(&self, mask: Status) -> Result<()> {
         let entity = self.id();
         let mask = mask.bits();

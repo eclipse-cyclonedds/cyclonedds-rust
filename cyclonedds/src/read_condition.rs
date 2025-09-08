@@ -8,6 +8,37 @@ use crate::{Reader, Result, State};
 /// attached to a [`WaitSet`](crate::WaitSet) to trigger when matching samples
 /// become available. Reading via the condition returns only samples whose
 /// combined sample, view, and instance state matches the mask.
+///
+/// # Examples
+///
+/// ```no_run
+/// use cyclonedds::state;
+/// use cyclonedds::{Duration, ReadCondition, WaitSet};
+/// # use cyclonedds::{Domain, Participant, Topic, Reader};
+/// # let domain = Domain::default();
+/// # let participant = Participant::new(&domain)?;
+/// # #[derive(
+/// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+/// # )]
+/// # struct Data {
+/// #     x: i32,
+/// #     y: i32,
+/// # }
+///
+/// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+/// let reader = Reader::new(&topic)?;
+///
+/// let condition = ReadCondition::new(
+///     &reader,
+///     state::sample::Fresh | state::instance::Any | state::view::Any,
+/// )?;
+/// let mut waitset = WaitSet::<()>::new(&participant)?;
+/// waitset.attach(&condition, None)?;
+/// waitset.wait(Duration::INFINITE)?;
+///
+/// let samples = condition.take()?;
+/// # Ok::<_, cyclonedds::Error>(())
+/// ```
 #[derive(Debug)]
 pub struct ReadCondition<'domain, 'participant, 'topic, 'reader, T>
 where

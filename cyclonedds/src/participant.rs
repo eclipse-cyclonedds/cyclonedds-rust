@@ -29,6 +29,16 @@ pub struct ParticipantBuilder<'domain, 'qos> {
 impl<'d, 'q> ParticipantBuilder<'d, 'q> {
     /// Creates a new [`ParticipantBuilder`] for the given
     /// [`Domain`](crate::Domain).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Domain;
+    /// use cyclonedds::builder::ParticipantBuilder;
+    ///
+    /// let domain = Domain::default();
+    /// let participant_builder = ParticipantBuilder::new(&domain);
+    /// ```
     #[must_use]
     pub const fn new(domain: &'d crate::Domain) -> Self {
         Self {
@@ -39,6 +49,21 @@ impl<'d, 'q> ParticipantBuilder<'d, 'q> {
     }
 
     /// Sets the [`QoS`](crate::QoS) for this participant builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::ParticipantBuilder;
+    /// use cyclonedds::qos::policy;
+    /// use cyclonedds::{Duration, QoS};
+    /// # use cyclonedds::Domain;
+    /// # let domain = Domain::default();
+    ///
+    /// let qos = QoS::new().with_reliability(policy::Reliability::Reliable {
+    ///     max_blocking_time: Duration::from_millis(100),
+    /// });
+    /// let participant_builder = ParticipantBuilder::new(&domain).with_qos(&qos);
+    /// ```
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
@@ -71,6 +96,20 @@ impl<'d, 'q> ParticipantBuilder<'d, 'q> {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the participant failed to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::ParticipantBuilder;
+    /// use cyclonedds::qos::policy::Durability;
+    /// use cyclonedds::{Domain, QoS};
+    ///
+    /// let domain = Domain::default();
+    /// let qos = QoS::new().with_durability(Durability::TransientLocal);
+    /// let participant = ParticipantBuilder::new(&domain).with_qos(&qos).build()?;
+    ///
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn build(self) -> Result<Participant<'d>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
@@ -99,6 +138,15 @@ impl<'d> Participant<'d> {
     ///
     /// Returns an [`Error`](crate::Error) if the participant fails to create.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::{Domain, Participant};
+    ///
+    /// let domain = Domain::default();
+    /// let participant = Participant::new(&domain)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn new(domain: &'d crate::Domain) -> Result<Self> {
         Self::builder(domain).build()
     }

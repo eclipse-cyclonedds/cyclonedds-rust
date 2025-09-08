@@ -47,6 +47,25 @@ where
     T: crate::Topicable,
 {
     /// Creates a new [`ReaderBuilder`] for the given [`Topic`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::ReaderBuilder;
+    /// use cyclonedds::{Domain, Participant, Topic};
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let domain = Domain::default();
+    /// let participant = Participant::new(&domain)?;
+    /// let topic = Topic::new(&participant, "MyTopic")?;
+    /// let reader_builder = ReaderBuilder::<Data>::new(&topic);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn new(topic: &'t Topic<'d, 'p, T>) -> Self {
         Self {
@@ -58,6 +77,30 @@ where
     }
 
     /// Sets the [`QoS`](crate::QoS) for this reader builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::ReaderBuilder;
+    /// use cyclonedds::qos::policy;
+    /// use cyclonedds::{Duration, QoS};
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let qos = QoS::new().with_reliability(policy::Reliability::Reliable {
+    ///     max_blocking_time: Duration::from_millis(100),
+    /// });
+    /// let reader_builder = ReaderBuilder::<Data>::new(&topic).with_qos(&qos);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
@@ -65,6 +108,29 @@ where
     }
 
     /// Sets the [`Subscriber`](crate::Subscriber) on this reader builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::ReaderListener;
+    /// use cyclonedds::Subscriber;
+    /// use cyclonedds::builder::ReaderBuilder;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let subscriber = Subscriber::new(&participant)?;
+    ///
+    /// let reader_builder = ReaderBuilder::<Data>::new(&topic).with_subscriber(&subscriber);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     #[must_use]
     pub const fn with_subscriber(mut self, subscriber: &'p Subscriber<'d, 'p>) -> Self {
         self.subscriber = Some(subscriber);
@@ -106,6 +172,28 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the reader failed to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::QoS;
+    /// use cyclonedds::builder::ReaderBuilder;
+    /// use cyclonedds::qos::policy;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let qos = QoS::new().with_durability(policy::Durability::TransientLocal);
+    /// let reader = ReaderBuilder::<Data>::new(&topic).with_qos(&qos).build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn build(self) -> Result<Reader<'d, 'p, 't, T>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
@@ -140,6 +228,25 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the reader fails to create.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Reader;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn new(topic: &'t Topic<'d, 'p, T>) -> Result<Self> {
         Self::builder(topic).build()
     }
@@ -182,6 +289,31 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the reader fails to take samples.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// writer.write(&Data::default())?;
+    /// let samples = reader.take()?;
+    /// assert_eq!(samples.len(), 1);
+    ///
+    /// // Samples have been consumed.
+    /// assert!(reader.take()?.is_empty());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn take(&self) -> Result<Vec<crate::sample::SampleOrKey<T>>>
     where
         T: std::clone::Clone,
@@ -200,6 +332,31 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the reader fails to read samples.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// writer.write(&Data::default())?;
+    /// let samples = reader.read()?;
+    /// assert_eq!(samples.len(), 1);
+    ///
+    /// // Samples are still in the cache.
+    /// assert_eq!(reader.read()?.len(), 1);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn read(&self) -> Result<Vec<crate::sample::SampleOrKey<T>>>
     where
         T: std::clone::Clone,
@@ -217,6 +374,30 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the reader fails to peek.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// writer.write(&Data::default())?;
+    /// assert_eq!(reader.peek()?.len(), 1);
+    ///
+    /// // Samples are unaffected.
+    /// assert_eq!(reader.take()?.len(), 1);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn peek(&self) -> Result<Vec<crate::sample::SampleOrKey<T>>>
     where
         T: std::clone::Clone,
@@ -235,6 +416,29 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the reader fails to retrieve the
     /// matched publications.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// use cyclonedds::entity::Entity;
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// let matched = reader.matched_publications()?;
+    /// assert_eq!(matched[0], writer.instance_handle()?);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn matched_publications(&self) -> Result<Vec<crate::entity::InstanceHandle>> {
         let matched = ffi::dds_get_matched_publications(self.inner)?;
         let matched = matched
@@ -252,6 +456,26 @@ where
     ///
     /// Returns an [`Error`](crate::Error) if the timeout elapses before
     /// historical data is received or if the reader returns an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// use cyclonedds::Duration;
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?;
+    /// reader.wait_for_historical_data(Duration::from_secs(1))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     pub fn wait_for_historical_data(&self, timeout: crate::Duration) -> Result<()> {
         ffi::dds_reader_wait_for_historical_data(self.inner, timeout.inner)
     }
