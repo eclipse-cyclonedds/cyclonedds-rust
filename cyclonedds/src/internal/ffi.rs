@@ -863,5 +863,23 @@ pub fn dds_get_participant(
     unsafe { cyclonedds_sys::dds_get_participant(entity) }.into_error()
 }
 
+pub fn dds_create_readcondition(
+    reader: cyclonedds_sys::dds_entity_t,
+    mask: u32,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe { cyclonedds_sys::dds_create_readcondition(reader, mask) }.into_error()
+}
+
+pub fn dds_get_mask(condition: cyclonedds_sys::dds_entity_t) -> Result<u32> {
+    let mut mask: u32 = 0;
+    unsafe { cyclonedds_sys::dds_get_mask(condition, &raw mut mask) }.into_error()?;
+    Ok(mask)
+}
+
+pub fn dds_triggered(entity: cyclonedds_sys::dds_entity_t) -> Result<bool> {
+    let triggered = unsafe { cyclonedds_sys::dds_triggered(entity) }.into_error()?;
+    Ok(triggered == 1)
+}
+
 #[cfg(test)]
 mod tests;
