@@ -936,6 +936,34 @@ where
     }
 }
 
+pub fn dds_create_guardcondition(
+    owner: cyclonedds_sys::dds_entity_t,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe { cyclonedds_sys::dds_create_guardcondition(owner) }.into_error()
+}
+
+pub fn dds_set_guardcondition(
+    guard_condition: cyclonedds_sys::dds_entity_t,
+    triggered: bool,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_set_guardcondition(guard_condition, triggered) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_read_guardcondition(guard_condition: cyclonedds_sys::dds_entity_t) -> Result<bool> {
+    let mut triggered = false;
+    unsafe { cyclonedds_sys::dds_read_guardcondition(guard_condition, &raw mut triggered) }
+        .into_error()?;
+    Ok(triggered)
+}
+
+pub fn dds_take_guardcondition(guard_condition: cyclonedds_sys::dds_entity_t) -> Result<bool> {
+    let mut triggered = false;
+    unsafe { cyclonedds_sys::dds_take_guardcondition(guard_condition, &raw mut triggered) }
+        .into_error()?;
+    Ok(triggered)
+}
+
 pub fn dds_get_mask(condition: cyclonedds_sys::dds_entity_t) -> Result<u32> {
     let mut mask: u32 = 0;
     unsafe { cyclonedds_sys::dds_get_mask(condition, &raw mut mask) }.into_error()?;

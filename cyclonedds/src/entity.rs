@@ -123,6 +123,7 @@ impl_entity!(crate::Reader<'_, '_, '_, T> where T: crate::Topicable);
 impl_entity!(crate::Writer<'_, '_, '_, T> where T: crate::Topicable);
 impl_entity!(crate::ReadCondition<'_, '_, '_, '_, T> where T: crate::Topicable);
 impl_entity!(crate::QueryCondition<'_, '_, '_, '_, T, F> where T: crate::Topicable, F: Fn(&T) -> bool);
+impl_entity!(crate::GuardCondition<'_>);
 
 #[cfg(test)]
 mod tests {
@@ -143,6 +144,7 @@ mod tests {
         let read_condition = crate::ReadCondition::new(&reader, crate::state::sample::Any).unwrap();
         let query_condition =
             crate::QueryCondition::new(&reader, crate::State::empty(), |_| true).unwrap();
+        let guard_condition = crate::GuardCondition::new(&participant).unwrap();
 
         assert_eq!(participant.id().inner, participant.inner);
         assert_eq!(topic.id().inner, topic.inner);
@@ -152,6 +154,7 @@ mod tests {
         assert_eq!(writer.id().inner, writer.inner);
         assert_eq!(read_condition.id().inner, read_condition.inner);
         assert_eq!(query_condition.id().inner, query_condition.inner);
+        assert_eq!(guard_condition.id().inner, guard_condition.inner);
     }
 
     #[test]
