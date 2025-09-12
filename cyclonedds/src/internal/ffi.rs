@@ -870,6 +870,72 @@ pub fn dds_create_readcondition(
     unsafe { cyclonedds_sys::dds_create_readcondition(reader, mask) }.into_error()
 }
 
+pub fn dds_create_querycondition<T, F, Callback>(
+    reader: cyclonedds_sys::dds_entity_t,
+    mask: u32,
+) -> Result<cyclonedds_sys::dds_entity_t>
+where
+    T: std::panic::UnwindSafe + std::panic::RefUnwindSafe + crate::Topicable,
+    F: Fn(&T) -> bool,
+    Callback: Filter<T, F>,
+{
+    let _ = Callback::IS_PROVIDED_CALLBACK_ZERO_SIZED;
+    unsafe {
+        cyclonedds_sys::dds_create_querycondition(
+            reader,
+            mask,
+            Some(wrap_filter::<T, F, Callback>()),
+        )
+    }
+    .into_error()
+}
+
+fn wrap_filter<T, F, Callback>() -> unsafe extern "C" fn(*const std::ffi::c_void) -> bool
+where
+    T: std::panic::UnwindSafe + std::panic::RefUnwindSafe + crate::Topicable,
+    F: Fn(&T) -> bool,
+    Callback: Filter<T, F>,
+{
+    unsafe extern "C" fn filter_callback<T, F, Callback>(sample: *const std::ffi::c_void) -> bool
+    where
+        T: std::panic::UnwindSafe + std::panic::RefUnwindSafe + crate::Topicable,
+        F: Fn(&T) -> bool,
+        Callback: Filter<T, F>,
+    {
+        let sample = unsafe { &*(sample.cast::<InternalSample<'_, T>>()) };
+        let InternalSample::Sample(sample) = sample else {
+            return false;
+        };
+
+        std::panic::catch_unwind(|| Callback::filter(sample)).unwrap_or(false)
+    }
+    filter_callback::<T, F, Callback>
+}
+
+pub trait Filter<T, F>
+where
+    F: Fn(&T) -> bool,
+{
+    const IS_PROVIDED_CALLBACK_ZERO_SIZED: bool = {
+        assert!(
+            size_of::<F>() == 0,
+            "\
+ the provided callback is not zero-sized
+   = note: closures that capture values from their environment are not zero-sized
+   = help: ensure the callback is either:
+           - a function item, e.g. `fn my_callback() {{}}`
+           - a closure that does not capture any external state"
+        );
+        size_of::<F>() == 0
+    };
+
+    fn filter(sample: &T) -> bool {
+        // NOTE horribly unsafe.
+        let function = unsafe { std::mem::zeroed::<F>() };
+        function(sample)
+    }
+}
+
 pub fn dds_get_mask(condition: cyclonedds_sys::dds_entity_t) -> Result<u32> {
     let mut mask: u32 = 0;
     unsafe { cyclonedds_sys::dds_get_mask(condition, &raw mut mask) }.into_error()?;
