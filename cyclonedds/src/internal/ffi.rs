@@ -975,5 +975,102 @@ pub fn dds_triggered(entity: cyclonedds_sys::dds_entity_t) -> Result<bool> {
     Ok(triggered == 1)
 }
 
+pub fn dds_create_waitset(
+    participant: cyclonedds_sys::dds_entity_t,
+) -> Result<cyclonedds_sys::dds_entity_t> {
+    unsafe { cyclonedds_sys::dds_create_waitset(participant) }.into_error()
+}
+
+pub fn dds_waitset_attach(
+    waitset: cyclonedds_sys::dds_entity_t,
+    entity: cyclonedds_sys::dds_entity_t,
+    blob: isize,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_waitset_attach(waitset, entity, blob) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_waitset_detach(
+    waitset: cyclonedds_sys::dds_entity_t,
+    entity: cyclonedds_sys::dds_entity_t,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_waitset_detach(waitset, entity) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_waitset_set_trigger(waitset: cyclonedds_sys::dds_entity_t, trigger: bool) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_waitset_set_trigger(waitset, trigger) }.into_error()?;
+    Ok(())
+}
+
+pub fn dds_waitset_wait<'a, A>(
+    waitset: cyclonedds_sys::dds_entity_t,
+    max_number_of_blobs: usize,
+    timeout: cyclonedds_sys::dds_duration_t,
+) -> Result<(i32, Vec<&'a A>)> {
+    let mut blobs: Vec<isize> = vec![0; max_number_of_blobs];
+
+    let number_of_triggered_entities = unsafe {
+        cyclonedds_sys::dds_waitset_wait(waitset, blobs.as_mut_ptr(), blobs.len(), timeout)
+    }
+    .into_error()?;
+
+    if number_of_triggered_entities == 0 {
+        Err(crate::Error::Timeout)
+    } else {
+        let blobs: Vec<_> = blobs
+            .iter()
+            .filter_map(|&blob| {
+                let blob = blob as *const A;
+                if blob.is_null() {
+                    None
+                } else {
+                    let blob = unsafe { &*blob };
+                    Some(blob)
+                }
+            })
+            .collect();
+
+        Ok((number_of_triggered_entities, blobs))
+    }
+}
+
+pub fn dds_waitset_wait_until<'a, A>(
+    waitset: cyclonedds_sys::dds_entity_t,
+    max_number_of_blobs: usize,
+    absolute_time: cyclonedds_sys::dds_time_t,
+) -> Result<(i32, Vec<&'a A>)> {
+    let mut blobs: Vec<isize> = vec![0; max_number_of_blobs];
+
+    let number_of_triggered_entities = unsafe {
+        cyclonedds_sys::dds_waitset_wait_until(
+            waitset,
+            blobs.as_mut_ptr(),
+            blobs.len(),
+            absolute_time,
+        )
+    }
+    .into_error()?;
+
+    if number_of_triggered_entities == 0 {
+        Err(crate::Error::Timeout)
+    } else {
+        let blobs: Vec<_> = blobs
+            .iter()
+            .filter_map(|&blob| {
+                let blob = blob as *const A;
+                if blob.is_null() {
+                    None
+                } else {
+                    let blob = unsafe { &*blob };
+                    Some(blob)
+                }
+            })
+            .collect();
+
+        Ok((number_of_triggered_entities, blobs))
+    }
+}
+
 #[cfg(test)]
 mod tests;

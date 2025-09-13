@@ -770,9 +770,9 @@ mod tests {
         let result = writer.lookup_instance(&key);
         assert_eq!(result, Some(registered_handle));
     }
-
     #[test]
     fn test_writer_unregister() {
+        use crate::entity::Entity;
         use crate::state;
 
         let domain_id = crate::tests::domain::unique_id();
@@ -806,7 +806,25 @@ mod tests {
         });
         let writer = Writer::builder(&topic).with_qos(&qos).build().unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Sync writer to reader.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        writer
+            .set_status_mask(crate::Status::PublicationMatched)
+            .unwrap();
+        waitset.attach(&writer, Some(&writer)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &writer);
+        waitset.detach(&writer).unwrap();
+
+        // Sync reader to writer.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        reader
+            .set_status_mask(crate::Status::SubscriptionMatched)
+            .unwrap();
+        waitset.attach(&reader, Some(&reader)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &reader);
+        waitset.detach(&reader).unwrap();
 
         for i in 0..3 {
             let sample = crate::tests::topic::Data {
@@ -866,6 +884,7 @@ mod tests {
 
     #[test]
     fn test_writer_unregister_with_timestamp() {
+        use crate::entity::Entity;
         use crate::state;
 
         let domain_id = crate::tests::domain::unique_id();
@@ -899,7 +918,25 @@ mod tests {
         });
         let writer = Writer::builder(&topic).with_qos(&qos).build().unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Sync writer to reader.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        writer
+            .set_status_mask(crate::Status::PublicationMatched)
+            .unwrap();
+        waitset.attach(&writer, Some(&writer)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &writer);
+        waitset.detach(&writer).unwrap();
+
+        // Sync reader to writer.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        reader
+            .set_status_mask(crate::Status::SubscriptionMatched)
+            .unwrap();
+        waitset.attach(&reader, Some(&reader)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &reader);
+        waitset.detach(&reader).unwrap();
 
         for i in 0..3 {
             let sample = crate::tests::topic::Data {
@@ -965,6 +1002,7 @@ mod tests {
 
     #[test]
     fn test_writer_write_dispose() {
+        use crate::entity::Entity;
         use crate::state;
 
         let domain_id = crate::tests::domain::unique_id();
@@ -998,7 +1036,25 @@ mod tests {
         });
         let writer = Writer::builder(&topic).with_qos(&qos).build().unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Sync writer to reader.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        writer
+            .set_status_mask(crate::Status::PublicationMatched)
+            .unwrap();
+        waitset.attach(&writer, Some(&writer)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &writer);
+        waitset.detach(&writer).unwrap();
+
+        // Sync reader to writer.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        reader
+            .set_status_mask(crate::Status::SubscriptionMatched)
+            .unwrap();
+        waitset.attach(&reader, Some(&reader)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &reader);
+        waitset.detach(&reader).unwrap();
 
         let time = std::time::SystemTime::now().try_into().unwrap();
         for i in 0..4 {
@@ -1050,6 +1106,7 @@ mod tests {
 
     #[test]
     fn test_writer_write_and_then_dispose() {
+        use crate::entity::Entity;
         use crate::state;
 
         let domain_id = crate::tests::domain::unique_id();
@@ -1083,7 +1140,25 @@ mod tests {
         });
         let writer = Writer::builder(&topic).with_qos(&qos).build().unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Sync writer to reader.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        writer
+            .set_status_mask(crate::Status::PublicationMatched)
+            .unwrap();
+        waitset.attach(&writer, Some(&writer)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &writer);
+        waitset.detach(&writer).unwrap();
+
+        // Sync reader to writer.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        reader
+            .set_status_mask(crate::Status::SubscriptionMatched)
+            .unwrap();
+        waitset.attach(&reader, Some(&reader)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &reader);
+        waitset.detach(&reader).unwrap();
 
         let time = std::time::SystemTime::now().try_into().unwrap();
         for i in 0..4 {
@@ -1140,6 +1215,7 @@ mod tests {
 
     #[test]
     fn test_writer_write_and_then_dispose_by_instance_handle() {
+        use crate::entity::Entity;
         use crate::state;
 
         let domain_id = crate::tests::domain::unique_id();
@@ -1173,7 +1249,25 @@ mod tests {
         });
         let writer = Writer::builder(&topic).with_qos(&qos).build().unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Sync writer to reader.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        writer
+            .set_status_mask(crate::Status::PublicationMatched)
+            .unwrap();
+        waitset.attach(&writer, Some(&writer)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &writer);
+        waitset.detach(&writer).unwrap();
+
+        // Sync reader to writer.
+        let mut waitset = crate::WaitSet::new(&participant).unwrap();
+        reader
+            .set_status_mask(crate::Status::SubscriptionMatched)
+            .unwrap();
+        waitset.attach(&reader, Some(&reader)).unwrap();
+        let result = waitset.wait(crate::Duration::INFINITE).unwrap();
+        assert_eq!(result[0], &reader);
+        waitset.detach(&reader).unwrap();
 
         let time = std::time::SystemTime::now().try_into().unwrap();
         for i in 0..4 {

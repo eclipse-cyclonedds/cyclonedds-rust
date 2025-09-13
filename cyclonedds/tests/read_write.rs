@@ -7,6 +7,8 @@
 
 use cyclonedds as dds;
 use cyclonedds::cdr_bounds::CdrBounds;
+use cyclonedds::entity::Entity;
+
 mod common;
 
 /// Verify round-trip read/write with keyhash generation enabled across two
@@ -60,6 +62,10 @@ fn read_write_generate_keyhash() -> dds::Result<()> {
     let topic = dds::Topic::<common::topic::Data>::new(&participant, &topic_name)?;
     let writer = dds::Writer::new(&topic)?;
 
+    writer.set_status_mask(dds::Status::PublicationMatched)?;
+    let mut waitset = dds::WaitSet::<()>::new(&participant)?;
+    waitset.attach(&writer, None)?;
+    waitset.wait(std::time::Duration::from_secs(1).try_into()?)?;
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     let sample = common::topic::Data {
@@ -196,6 +202,10 @@ fn read_write() -> dds::Result<()> {
     let topic = dds::Topic::new(&participant, &topic_name)?;
     let writer = dds::Writer::new(&topic)?;
 
+    writer.set_status_mask(dds::Status::PublicationMatched)?;
+    let mut waitset = dds::WaitSet::<()>::new(&participant)?;
+    waitset.attach(&writer, None)?;
+    waitset.wait(std::time::Duration::from_secs(1).try_into()?)?;
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     let sample = common::topic::Data {
@@ -345,6 +355,10 @@ fn read_write_generate_keyhash_unbounded_keyed_data() -> dds::Result<()> {
     let topic = dds::Topic::<UnboundedKeyedData>::new(&participant, &topic_name)?;
     let writer = dds::Writer::new(&topic)?;
 
+    writer.set_status_mask(dds::Status::PublicationMatched)?;
+    let mut waitset = dds::WaitSet::<()>::new(&participant)?;
+    waitset.attach(&writer, None)?;
+    waitset.wait(std::time::Duration::from_secs(1).try_into()?)?;
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     let sample = UnboundedKeyedData {
