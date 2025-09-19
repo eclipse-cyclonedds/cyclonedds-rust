@@ -1,4 +1,5 @@
 use crate::internal::ffi;
+use crate::internal::traits::AsFfi;
 use crate::{Result, Subscriber, Topic};
 
 /// A data reader for topic type [`T`](crate::Topicable).
@@ -38,6 +39,7 @@ where
     subscriber: Option<&'participant Subscriber<'domain, 'participant>>,
     topic: &'topic Topic<'domain, 'participant, T>,
     qos: Option<&'qos crate::QoS>,
+    listener: Option<crate::ReaderListener<T>>,
 }
 
 impl<'d, 'p, 't, 'q, T> ReaderBuilder<'d, 'p, 't, 'q, T>
@@ -51,6 +53,7 @@ where
             subscriber: None,
             topic,
             qos: None,
+            listener: None,
         }
     }
 
@@ -68,24 +71,61 @@ where
         self
     }
 
+    /// Sets the [`Listener`](crate::Listener) on this reader builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::ReaderListener;
+    /// use cyclonedds::builder::ReaderBuilder;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let reader_builder = ReaderBuilder::<Data>::new(&topic).with_listener(ReaderListener::new());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_listener<L>(mut self, listener: L) -> Self
+    where
+        L: AsRef<crate::ReaderListener<T>>,
+    {
+        self.listener = Some(listener.as_ref().clone());
+        self
+    }
+
     /// Builds the [`Reader`].
     ///
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the reader failed to create.
     pub fn build(self) -> Result<Reader<'d, 'p, 't, T>> {
-        Ok(Reader {
-            inner: ffi::dds_create_reader(
-                self.subscriber
-                    .map_or(ffi::dds_get_participant(self.topic.inner)?, |subscriber| {
-                        subscriber.inner
-                    }),
-                self.topic.inner,
-                self.qos.map(|qos| &qos.inner),
-                None,
-            )?,
-            phantom_topic: std::marker::PhantomData,
-        })
+        // NOTE: using `and_then` to avoid ? branch on the listener for coverage
+        // since the C lib currently panics on OOM rather than returning null.
+        self.listener
+            .map(|listener| listener.as_ffi())
+            .transpose()
+            .and_then(|listener| {
+                Ok(Reader {
+                    inner: ffi::dds_create_reader(
+                        self.subscriber
+                            .map_or(ffi::dds_get_participant(self.topic.inner)?, |subscriber| {
+                                subscriber.inner
+                            }),
+                        self.topic.inner,
+                        self.qos.map(|qos| &qos.inner),
+                        listener.as_ref(),
+                    )?,
+                    phantom_topic: std::marker::PhantomData,
+                })
+            })
     }
 }
 
@@ -224,6 +264,109 @@ where
             phantom_topic: std::marker::PhantomData,
         })
     }
+
+    /// Sets the [`ReaderListener`](crate::ReaderListener) on this reader,
+    /// replacing any previously set listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// use cyclonedds::listener::ReaderListener;
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let mut reader = Reader::new(&topic)?;
+    /// reader.set_listener(
+    ///     ReaderListener::new().with_subscription_matched(|_, status| {
+    ///         println!("matched writers: {}", status.current.count);
+    ///     }),
+    /// )?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
+    where
+        L: AsRef<crate::ReaderListener<T>>,
+    {
+        listener
+            .as_ref()
+            .as_ffi()
+            .and_then(|listener| ffi::dds_set_listener(self.inner, Some(listener.inner)))
+    }
+
+    /// Removes the listener from this reader.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to unset the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let mut reader = Reader::new(&topic)?;
+    /// reader.unset_listener()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn unset_listener(&mut self) -> Result<()> {
+        ffi::dds_set_listener(self.inner, None)?;
+        Ok(())
+    }
+
+    /// Sets the [`ReaderListener`](crate::ReaderListener) on this reader,
+    /// consuming and returning `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::listener::ReaderListener;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer, Reader};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::new(&topic)?.with_listener(ReaderListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
+    where
+        L: AsRef<crate::ReaderListener<T>>,
+    {
+        self.set_listener(listener).map(|()| self)
+    }
 }
 
 impl<T> Drop for Reader<'_, '_, '_, T>
@@ -253,6 +396,7 @@ mod tests {
         let participant = crate::Participant::new(&domain).unwrap();
         let subscriber = crate::Subscriber::new(&participant).unwrap();
         let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+        let listener = crate::ReaderListener::new();
 
         let _ = Reader::new(&topic).unwrap();
         let _ = Reader::builder(&topic).with_qos(&qos).build().unwrap();
@@ -263,6 +407,7 @@ mod tests {
         let _ = Reader::builder(&topic)
             .with_qos(&qos)
             .with_subscriber(&subscriber)
+            .with_listener(listener)
             .build()
             .unwrap();
     }
@@ -388,5 +533,69 @@ mod tests {
         let expected = writer.instance_handle().unwrap();
         let actual = matched[0];
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_reader_matched_publications_on_invalid_reader() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+        let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+
+        let mut reader = Reader::new(&topic).unwrap();
+        let reader_id = reader.inner;
+        reader.inner = 0;
+
+        let result = reader.matched_publications().unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        reader.inner = reader_id;
+    }
+
+    #[test]
+    fn test_reader_with_listener() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+        let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+
+        let listener = crate::ReaderListener::new()
+            .with_data_available(|_| ())
+            .with_liveliness_changed(|_, _| ())
+            .with_requested_deadline_missed(|_, _| ())
+            .with_requested_incompatible_qos(|_, _| ())
+            .with_sample_lost(|_, _| ())
+            .with_sample_rejected(|_, _| ())
+            .with_subscription_matched(|_, _| ());
+
+        let _ = Reader::new(&topic)
+            .unwrap()
+            .with_listener(&listener)
+            .unwrap();
+
+        let mut reader = Reader::new(&topic).unwrap();
+        reader.set_listener(&listener).unwrap();
+        reader.unset_listener().unwrap();
+    }
+
+    #[test]
+    fn test_reader_with_listener_on_invalid_reader() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+        let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+
+        let listener = crate::ReaderListener::new();
+
+        let mut reader = Reader::new(&topic).unwrap();
+        let reader_id = reader.inner;
+        reader.inner = 0;
+        let result = reader.set_listener(&listener).unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        let result = reader.unset_listener().unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        reader.inner = reader_id;
     }
 }

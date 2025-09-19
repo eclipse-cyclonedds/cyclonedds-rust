@@ -1,5 +1,6 @@
 use crate::internal::ffi;
 use crate::internal::sertype::Sertype;
+use crate::internal::traits::AsFfi;
 use crate::{Participant, Result};
 
 /// A typed communication channel.
@@ -32,7 +33,7 @@ where
     participant: &'participant Participant<'domain>,
     topic_name: &'name str,
     qos: Option<&'qos crate::QoS>,
-    phantom: std::marker::PhantomData<T>,
+    listener: Option<crate::TopicListener<T>>,
 }
 
 impl<'d, 'p, 'q, 'n, T> TopicBuilder<'d, 'p, 'q, 'n, T>
@@ -46,7 +47,7 @@ where
             participant,
             topic_name,
             qos: None,
-            phantom: std::marker::PhantomData,
+            listener: None,
         }
     }
 
@@ -54,6 +55,36 @@ where
     #[must_use]
     pub const fn with_qos(mut self, qos: &'q crate::QoS) -> Self {
         self.qos = Some(qos);
+        self
+    }
+
+    /// Sets the [`Listener`](crate::Listener) on this topic builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::TopicListener;
+    /// use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let participant_builder =
+    ///     TopicBuilder::<Data>::new(&participant, "MyTopic").with_listener(TopicListener::new());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_listener<L>(mut self, listener: L) -> Self
+    where
+        L: AsRef<crate::TopicListener<T>>,
+    {
+        self.listener = Some(listener.as_ref().clone());
         self
     }
 
@@ -71,22 +102,27 @@ where
         let mut sertype =
             std::mem::ManuallyDrop::new(Box::new(Sertype::<T>::new(&type_name, T::IS_KEYED)));
 
-        let inner = ffi::dds_create_topic(
-            self.participant.inner,
-            &name,
-            &mut &mut sertype.inner,
-            self.qos.map(|qos| &qos.inner),
-            None,
-        )
-        .inspect_err(|_| {
-            ffi::ddsi_sertype_unref(&mut sertype.inner);
-        })?;
+        self.listener
+            .map(|listener| listener.as_ffi())
+            .transpose()
+            .and_then(|listener| {
+                let inner = ffi::dds_create_topic(
+                    self.participant.inner,
+                    &name,
+                    &mut &mut sertype.inner,
+                    self.qos.map(|qos| &qos.inner),
+                    listener.as_ref(),
+                )
+                .inspect_err(|_| {
+                    ffi::ddsi_sertype_unref(&mut sertype.inner);
+                })?;
 
-        Ok(Topic {
-            inner,
-            phantom_type: std::marker::PhantomData,
-            phantom_participant: std::marker::PhantomData,
-        })
+                Ok(Topic {
+                    inner,
+                    phantom_type: std::marker::PhantomData,
+                    phantom_participant: std::marker::PhantomData,
+                })
+            })
     }
 }
 
@@ -127,6 +163,109 @@ where
             phantom_type: std::marker::PhantomData,
             phantom_participant: std::marker::PhantomData,
         })
+    }
+
+    /// Sets the [`TopicListener`](crate::TopicListener) on this topic,
+    /// replacing any previously set listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the topic fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::listener::TopicListener;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let mut topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// topic.set_listener(TopicListener::new().with_inconsistent_topic(|_, status| {
+    ///     println!("inconsistent topic: {status:?}");
+    /// }))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
+    where
+        T: serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + Default,
+        L: AsRef<crate::TopicListener<T>>,
+    {
+        listener
+            .as_ref()
+            .as_ffi()
+            .and_then(|listener| ffi::dds_set_listener(self.inner, Some(listener.inner)))
+    }
+
+    /// Removes the listener from this topic.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the topic fails to unset the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    /// let mut topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// topic.unset_listener()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn unset_listener(&mut self) -> Result<()> {
+        ffi::dds_set_listener(self.inner, None)?;
+        Ok(())
+    }
+
+    /// Sets the [`TopicListener`](crate::TopicListener) on this topic,
+    /// consuming and returning `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the topic fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::listener::TopicListener;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// #     y: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?.with_listener(TopicListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
+    where
+        T: serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + Default,
+        L: AsRef<crate::TopicListener<T>>,
+    {
+        self.set_listener(listener).map(|_err| self)
     }
 }
 
@@ -266,5 +405,58 @@ mod tests {
             .unwrap_err();
         assert_eq!(result, crate::Error::BadParameter);
         participant.inner = participant_id;
+    }
+
+    #[test]
+    fn test_topic_with_listener() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let listener = crate::TopicListener::new().with_inconsistent_topic(|_, _| ());
+
+        let _ = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name)
+            .unwrap()
+            .with_listener(&listener)
+            .unwrap();
+        let _ = Topic::<crate::tests::topic::Data>::builder(&participant, &topic_name)
+            .with_listener(&listener)
+            .build()
+            .unwrap();
+
+        let mut topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+        topic.set_listener(&listener).unwrap();
+        topic.unset_listener().unwrap();
+    }
+
+    #[test]
+    fn test_topic_with_listener_on_invalid_topic() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let listener = crate::TopicListener::new();
+
+        let mut topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+        let topic_id = topic.inner;
+        topic.inner = 0;
+        let result = topic.set_listener(&listener).unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        let result = topic.unset_listener().unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        topic.inner = topic_id;
+    }
+
+    #[test]
+    fn test_topic_create_from_existing() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+        let topic_01 = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+        let topic_02 = Topic::<crate::tests::topic::Data>::from_existing(topic_01.inner);
+        assert_eq!(topic_01.inner, topic_02.inner);
     }
 }

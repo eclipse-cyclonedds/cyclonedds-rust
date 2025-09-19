@@ -1,4 +1,5 @@
 use crate::internal::ffi;
+use crate::internal::traits::AsFfi;
 use crate::{Participant, Result};
 
 /// A `Publisher` groups [`Writers`](crate::Writer) and controls their shared
@@ -23,6 +24,7 @@ pub struct Publisher<'domain, 'participant> {
 pub struct PublisherBuilder<'domain, 'participant, 'qos> {
     participant: &'participant Participant<'domain>,
     qos: Option<&'qos crate::QoS>,
+    listener: Option<crate::PublisherListener>,
 }
 
 impl<'d, 'p, 'q> PublisherBuilder<'d, 'p, 'q> {
@@ -32,6 +34,7 @@ impl<'d, 'p, 'q> PublisherBuilder<'d, 'p, 'q> {
         Self {
             participant,
             qos: None,
+            listener: None,
         }
     }
 
@@ -42,20 +45,50 @@ impl<'d, 'p, 'q> PublisherBuilder<'d, 'p, 'q> {
         self
     }
 
+    /// Sets the [`Listener`](crate::Listener) on this publisher builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Listener;
+    /// use cyclonedds::builder::PublisherBuilder;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let publisher_builder = PublisherBuilder::new(&participant).with_listener(Listener::new());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_listener<L>(mut self, listener: L) -> Self
+    where
+        L: AsRef<crate::PublisherListener>,
+    {
+        self.listener = Some(*listener.as_ref());
+        self
+    }
+
     /// Builds the [`Publisher`].
     ///
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the publisher failed to create.
     pub fn build(self) -> Result<Publisher<'d, 'p>> {
-        Ok(Publisher {
-            inner: ffi::dds_create_publisher(
-                self.participant.inner,
-                self.qos.map(|qos| &qos.inner),
-                None,
-            )?,
-            phantom: std::marker::PhantomData,
-        })
+        // NOTE: using `and_then` to avoid ? branch on the listener for coverage
+        // since the C lib currently panics on OOM rather than returning null.
+        self.listener
+            .map(|listener| listener.as_ffi())
+            .transpose()
+            .and_then(|listener| {
+                Ok(Publisher {
+                    inner: ffi::dds_create_publisher(
+                        self.participant.inner,
+                        self.qos.map(|qos| &qos.inner),
+                        listener.as_ref(),
+                    )?,
+                    phantom: std::marker::PhantomData,
+                })
+            })
     }
 }
 
@@ -149,6 +182,84 @@ impl<'d, 'p> Publisher<'d, 'p> {
             inner,
             phantom: std::marker::PhantomData,
         })
+    }
+
+    /// Sets the [`PublisherListener`](crate::PublisherListener) on this
+    /// publisher, replacing any previously set listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the publisher fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::PublisherListener;
+    /// # use cyclonedds::{Domain, Participant, Publisher};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let mut publisher = Publisher::new(&participant)?;
+    /// publisher.set_listener(PublisherListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
+    where
+        L: AsRef<crate::PublisherListener>,
+    {
+        listener
+            .as_ref()
+            .as_ffi()
+            .and_then(|listener| ffi::dds_set_listener(self.inner, Some(listener.inner)))
+    }
+
+    /// Removes the listener from this publisher.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the publisher fails to unset the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Publisher};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// let mut publisher = Publisher::new(&participant)?;
+    /// publisher.unset_listener()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn unset_listener(&mut self) -> Result<()> {
+        ffi::dds_set_listener(self.inner, None)?;
+        Ok(())
+    }
+
+    /// Sets the [`PublisherListener`](crate::PublisherListener) on this
+    /// publisher, consuming and returning `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the publisher fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::PublisherListener;
+    /// # use cyclonedds::{Domain, Participant, Publisher};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let publisher = Publisher::new(&participant)?.with_listener(PublisherListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
+    where
+        L: AsRef<crate::PublisherListener>,
+    {
+        self.set_listener(listener).map(|()| self)
     }
 }
 
@@ -253,5 +364,45 @@ mod tests {
             Err(crate::Error::Unsupported),
             "result was not unsupported (might be implemented now?)"
         );
+    }
+
+    #[test]
+    fn test_publisher_with_listener() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let listener = crate::PublisherListener::new();
+
+        let _ = Publisher::new(&participant)
+            .unwrap()
+            .with_listener(listener)
+            .unwrap();
+        let _ = Publisher::builder(&participant)
+            .with_listener(listener)
+            .build()
+            .unwrap();
+
+        let mut publisher = Publisher::new(&participant).unwrap();
+        publisher.set_listener(listener).unwrap();
+        publisher.unset_listener().unwrap();
+    }
+
+    #[test]
+    fn test_publisher_with_listener_on_invalid_publisher() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let listener = crate::PublisherListener::new();
+
+        let mut publisher = Publisher::new(&participant).unwrap();
+        let publisher_id = publisher.inner;
+        publisher.inner = 0;
+        let result = publisher.set_listener(listener).unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        let result = publisher.unset_listener().unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        publisher.inner = publisher_id;
     }
 }

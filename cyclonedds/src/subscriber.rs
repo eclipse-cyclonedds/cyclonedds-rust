@@ -1,4 +1,5 @@
 use crate::internal::ffi;
+use crate::internal::traits::AsFfi;
 use crate::{Participant, Result};
 
 /// A `Subscriber` groups [`Readers`](crate::Reader) and controls their shared
@@ -23,6 +24,7 @@ pub struct Subscriber<'domain, 'participant> {
 pub struct SubscriberBuilder<'domain, 'participant, 'qos> {
     participant: &'participant Participant<'domain>,
     qos: Option<&'qos crate::QoS>,
+    listener: Option<crate::SubscriberListener>,
 }
 
 impl<'d, 'p, 'q> SubscriberBuilder<'d, 'p, 'q> {
@@ -32,6 +34,7 @@ impl<'d, 'p, 'q> SubscriberBuilder<'d, 'p, 'q> {
         Self {
             participant,
             qos: None,
+            listener: None,
         }
     }
 
@@ -42,20 +45,51 @@ impl<'d, 'p, 'q> SubscriberBuilder<'d, 'p, 'q> {
         self
     }
 
+    ///
+    /// Sets the [`Listener`](crate::Listener) on this subscriber builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::Listener;
+    /// use cyclonedds::builder::SubscriberBuilder;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let subscriber_builder = SubscriberBuilder::new(&participant).with_listener(Listener::new());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_listener<L>(mut self, listener: L) -> Self
+    where
+        L: AsRef<crate::SubscriberListener>,
+    {
+        self.listener = Some(*listener.as_ref());
+        self
+    }
+
     /// Builds the [`Subscriber`].
     ///
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the subscriber failed to create.
     pub fn build(self) -> Result<Subscriber<'d, 'p>> {
-        Ok(Subscriber {
-            inner: ffi::dds_create_subscriber(
-                self.participant.inner,
-                self.qos.map(|qos| &qos.inner),
-                None,
-            )?,
-            phantom: std::marker::PhantomData,
-        })
+        // NOTE: using `and_then` to avoid ? branch on the listener for coverage
+        // since the C lib currently panics on OOM rather than returning null.
+        self.listener
+            .map(|listener| listener.as_ffi())
+            .transpose()
+            .and_then(|listener| {
+                Ok(Subscriber {
+                    inner: ffi::dds_create_subscriber(
+                        self.participant.inner,
+                        self.qos.map(|qos| &qos.inner),
+                        listener.as_ref(),
+                    )?,
+                    phantom: std::marker::PhantomData,
+                })
+            })
     }
 }
 
@@ -110,6 +144,84 @@ impl<'d, 'p> Subscriber<'d, 'p> {
             inner,
             phantom: std::marker::PhantomData,
         })
+    }
+
+    /// Sets the [`SubscriberListener`](crate::SubscriberListener) on this
+    /// subscriber, replacing any previously set listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the subscriber fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::SubscriberListener;
+    /// # use cyclonedds::{Domain, Participant, Subscriber};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let mut subscriber = Subscriber::new(&participant)?;
+    /// subscriber.set_listener(SubscriberListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
+    where
+        L: AsRef<crate::SubscriberListener>,
+    {
+        listener
+            .as_ref()
+            .as_ffi()
+            .and_then(|listener| ffi::dds_set_listener(self.inner, Some(listener.inner)))
+    }
+
+    /// Removes the listener from this subscriber.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the subscriber fails to unset the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Subscriber};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// let mut subscriber = Subscriber::new(&participant)?;
+    /// subscriber.unset_listener()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn unset_listener(&mut self) -> Result<()> {
+        ffi::dds_set_listener(self.inner, None)?;
+        Ok(())
+    }
+
+    /// Sets the [`SubscriberListener`](crate::SubscriberListener) on this
+    /// subscriber, consuming and returning `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the subscriber fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::SubscriberListener;
+    /// # use cyclonedds::{Domain, Participant, Subscriber};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    ///
+    /// let subscriber = Subscriber::new(&participant)?.with_listener(SubscriberListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
+    where
+        L: AsRef<crate::SubscriberListener>,
+    {
+        self.set_listener(listener).map(|_err| self)
     }
 }
 
@@ -184,5 +296,46 @@ mod tests {
             Err(crate::Error::Unsupported),
             "result was not unsupported (might be implemented now?)"
         );
+    }
+
+    #[test]
+    fn test_subscriber_with_listener() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let listener = crate::SubscriberListener::new().with_data_on_readers(|_| ());
+
+        let _ = Subscriber::new(&participant)
+            .unwrap()
+            .with_listener(listener)
+            .unwrap();
+
+        let _ = Subscriber::builder(&participant)
+            .with_listener(listener)
+            .build()
+            .unwrap();
+
+        let mut subscriber = Subscriber::new(&participant).unwrap();
+        subscriber.set_listener(listener).unwrap();
+        subscriber.unset_listener().unwrap();
+    }
+
+    #[test]
+    fn test_subscriber_with_listener_on_invalid_subscriber() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        let listener = crate::SubscriberListener::new().with_data_on_readers(|_| ());
+
+        let mut subscriber = Subscriber::new(&participant).unwrap();
+        let subscriber_id = subscriber.inner;
+        subscriber.inner = 0;
+        let result = subscriber.set_listener(listener).unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        let result = subscriber.unset_listener().unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        subscriber.inner = subscriber_id;
     }
 }

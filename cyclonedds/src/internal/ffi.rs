@@ -5,8 +5,19 @@
 
 #![allow(unsafe_code)]
 
+mod listener;
 pub mod serdata_ops;
 pub mod sertype_ops;
+
+pub use listener::{
+    Listener, dds_create_listener, dds_delete_listener, dds_listener_set_data_available,
+    dds_listener_set_data_on_readers, dds_listener_set_inconsistent_topic,
+    dds_listener_set_liveliness_changed, dds_listener_set_liveliness_lost,
+    dds_listener_set_offered_deadline_missed, dds_listener_set_offered_incompatible_qos,
+    dds_listener_set_publication_matched, dds_listener_set_requested_deadline_missed,
+    dds_listener_set_requested_incompatible_qos, dds_listener_set_sample_lost,
+    dds_listener_set_sample_rejected, dds_listener_set_subscription_matched, dds_set_listener,
+};
 
 use crate::Result;
 use crate::error::IntoError;
@@ -360,13 +371,15 @@ pub fn dds_qos_set_entity_name(qos: &mut cyclonedds_sys::dds_qos_t, name: &std::
 pub fn dds_create_participant(
     domain: cyclonedds_sys::dds_domainid_t,
     qos: Option<&cyclonedds_sys::dds_qos_t>,
-    listener: Option<&cyclonedds_sys::dds_listener_t>,
+    listener: Option<&Listener>,
 ) -> Result<cyclonedds_sys::dds_entity_t> {
     unsafe {
         cyclonedds_sys::dds_create_participant(
             domain,
             qos.map_or(std::ptr::null(), std::ptr::from_ref),
-            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), |listener| {
+                listener.inner.as_ptr().cast_const()
+            }),
         )
     }
     .into_error()
@@ -380,7 +393,7 @@ pub fn dds_create_topic(
     name: &std::ffi::CStr,
     sertype: &mut &mut cyclonedds_sys::ddsi_sertype,
     qos: Option<&cyclonedds_sys::dds_qos_t>,
-    listener: Option<&cyclonedds_sys::dds_listener_t>,
+    listener: Option<&Listener>,
 ) -> Result<cyclonedds_sys::dds_entity_t> {
     let sedp_plist = std::ptr::null();
 
@@ -390,7 +403,9 @@ pub fn dds_create_topic(
             name.as_ptr(),
             std::ptr::from_mut::<&mut _>(sertype).cast::<*mut _>(),
             qos.map_or(std::ptr::null(), std::ptr::from_ref),
-            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), |listener| {
+                listener.inner.as_ptr().cast_const()
+            }),
             sedp_plist,
         )
     }
@@ -402,13 +417,15 @@ pub fn dds_create_topic(
 pub fn dds_create_publisher(
     participant: cyclonedds_sys::dds_entity_t,
     qos: Option<&cyclonedds_sys::dds_qos_t>,
-    listener: Option<&cyclonedds_sys::dds_listener_t>,
+    listener: Option<&Listener>,
 ) -> Result<cyclonedds_sys::dds_entity_t> {
     unsafe {
         cyclonedds_sys::dds_create_publisher(
             participant,
             qos.map_or(std::ptr::null(), std::ptr::from_ref),
-            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), |listener| {
+                listener.inner.as_ptr().cast_const()
+            }),
         )
     }
     .into_error()
@@ -439,13 +456,15 @@ pub fn dds_wait_for_acks(
 pub fn dds_create_subscriber(
     participant: cyclonedds_sys::dds_entity_t,
     qos: Option<&cyclonedds_sys::dds_qos_t>,
-    listener: Option<&cyclonedds_sys::dds_listener_t>,
+    listener: Option<&Listener>,
 ) -> Result<cyclonedds_sys::dds_entity_t> {
     unsafe {
         cyclonedds_sys::dds_create_subscriber(
             participant,
             qos.map_or(std::ptr::null(), std::ptr::from_ref),
-            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), |listener| {
+                listener.inner.as_ptr().cast_const()
+            }),
         )
     }
     .into_error()
@@ -463,14 +482,16 @@ pub fn dds_create_reader(
     participant_or_subscriber: cyclonedds_sys::dds_entity_t,
     topic: cyclonedds_sys::dds_entity_t,
     qos: Option<&cyclonedds_sys::dds_qos_t>,
-    listener: Option<&cyclonedds_sys::dds_listener_t>,
+    listener: Option<&Listener>,
 ) -> Result<cyclonedds_sys::dds_entity_t> {
     unsafe {
         cyclonedds_sys::dds_create_reader(
             participant_or_subscriber,
             topic,
             qos.map_or(std::ptr::null(), std::ptr::from_ref),
-            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), |listener| {
+                listener.inner.as_ptr().cast_const()
+            }),
         )
     }
     .into_error()
@@ -482,14 +503,16 @@ pub fn dds_create_writer(
     participant_or_publisher: cyclonedds_sys::dds_entity_t,
     topic: cyclonedds_sys::dds_entity_t,
     qos: Option<&cyclonedds_sys::dds_qos_t>,
-    listener: Option<&cyclonedds_sys::dds_listener_t>,
+    listener: Option<&Listener>,
 ) -> Result<cyclonedds_sys::dds_entity_t> {
     unsafe {
         cyclonedds_sys::dds_create_writer(
             participant_or_publisher,
             topic,
             qos.map_or(std::ptr::null(), std::ptr::from_ref),
-            listener.map_or(std::ptr::null(), std::ptr::from_ref),
+            listener.map_or(std::ptr::null(), |listener| {
+                listener.inner.as_ptr().cast_const()
+            }),
         )
     }
     .into_error()

@@ -1,4 +1,5 @@
 use crate::internal::ffi;
+use crate::internal::traits::AsFfi;
 use crate::{Publisher, Result, Topic};
 
 /// A data writer for topic type [`T`](crate::Topicable).
@@ -38,6 +39,7 @@ where
     publisher: Option<&'participant Publisher<'domain, 'participant>>,
     topic: &'topic Topic<'domain, 'participant, T>,
     qos: Option<&'qos crate::QoS>,
+    listener: Option<crate::WriterListener<T>>,
 }
 
 impl<'d, 'p, 't, 'q, T> WriterBuilder<'d, 'p, 't, 'q, T>
@@ -51,6 +53,7 @@ where
             publisher: None,
             topic,
             qos: None,
+            listener: None,
         }
     }
 
@@ -68,24 +71,61 @@ where
         self
     }
 
+    /// Sets the [`Listener`](crate::Listener) on this writer builder.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::WriterListener;
+    /// use cyclonedds::builder::WriterBuilder;
+    /// # use cyclonedds::{Domain, Participant, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// # let topic = Topic::new(&participant, "MyTopic")?;
+    ///
+    /// let writer_builder = WriterBuilder::<Data>::new(&topic).with_listener(WriterListener::new());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_listener<L>(mut self, listener: L) -> Self
+    where
+        L: AsRef<crate::WriterListener<T>>,
+    {
+        self.listener = Some(listener.as_ref().clone());
+        self
+    }
+
     /// Builds the [`Writer`].
     ///
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the writer failed to create.
     pub fn build(self) -> Result<Writer<'d, 'p, 't, T>> {
-        Ok(Writer {
-            inner: ffi::dds_create_writer(
-                self.publisher
-                    .map_or(ffi::dds_get_participant(self.topic.inner)?, |publisher| {
-                        publisher.inner
-                    }),
-                self.topic.inner,
-                self.qos.map(|qos| &qos.inner),
-                None,
-            )?,
-            phantom_topic: std::marker::PhantomData,
-        })
+        // NOTE: using `and_then` to avoid ? branch on the listener for coverage
+        // since the C lib currently panics on OOM rather than returning null.
+        self.listener
+            .map(|listener| listener.as_ffi())
+            .transpose()
+            .and_then(|listener| {
+                Ok(Writer {
+                    inner: ffi::dds_create_writer(
+                        self.publisher
+                            .map_or(ffi::dds_get_participant(self.topic.inner)?, |publisher| {
+                                publisher.inner
+                            }),
+                        self.topic.inner,
+                        self.qos.map(|qos| &qos.inner),
+                        listener.as_ref(),
+                    )?,
+                    phantom_topic: std::marker::PhantomData,
+                })
+            })
     }
 }
 
@@ -378,6 +418,107 @@ where
             phantom_topic: std::marker::PhantomData,
         })
     }
+
+    /// Sets the [`WriterListener`](crate::WriterListener) on this writer,
+    /// replacing any previously set listener.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the writer fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::listener::WriterListener;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let mut writer = Writer::new(&topic)?;
+    /// writer.set_listener(WriterListener::new().with_publication_matched(|_, status| {
+    ///     println!("matched readers: {}", status.current.count);
+    /// }))?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
+    where
+        L: AsRef<crate::WriterListener<T>>,
+    {
+        listener
+            .as_ref()
+            .as_ffi()
+            .and_then(|listener| ffi::dds_set_listener(self.inner, Some(listener.inner)))
+    }
+
+    /// Removes the listener from this writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the writer fails to unset the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let mut writer = Writer::new(&topic)?;
+    /// writer.unset_listener()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn unset_listener(&mut self) -> Result<()> {
+        ffi::dds_set_listener(self.inner, None)?;
+        Ok(())
+    }
+
+    /// Sets the [`WriterListener`](crate::WriterListener) on this writer,
+    /// consuming and returning `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the writer fails to set the
+    /// listener.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::listener::WriterListener;
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     x: i32,
+    /// # }
+    ///
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?.with_listener(WriterListener::new())?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
+    where
+        L: AsRef<crate::WriterListener<T>>,
+    {
+        self.set_listener(listener).map(|()| self)
+    }
 }
 
 impl<T> Drop for Writer<'_, '_, '_, T>
@@ -407,6 +548,7 @@ mod tests {
         let participant = crate::Participant::new(&domain).unwrap();
         let publisher = crate::Publisher::new(&participant).unwrap();
         let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+        let listener = crate::WriterListener::new();
 
         let _ = Writer::new(&topic).unwrap();
         let _ = Writer::builder(&topic).with_qos(&qos).build().unwrap();
@@ -415,8 +557,9 @@ mod tests {
             .build()
             .unwrap();
         let _ = Writer::builder(&topic)
-            .with_publisher(&publisher)
             .with_qos(&qos)
+            .with_publisher(&publisher)
+            .with_listener(listener)
             .build()
             .unwrap();
     }
@@ -770,6 +913,7 @@ mod tests {
         let result = writer.lookup_instance(&key);
         assert_eq!(result, Some(registered_handle));
     }
+
     #[test]
     fn test_writer_unregister() {
         use crate::entity::Entity;
@@ -1324,5 +1468,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_writer_with_listener() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+        let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+
+        let listener = crate::WriterListener::new()
+            .with_liveliness_lost(|_, _| ())
+            .with_offered_deadline_missed(|_, _| ())
+            .with_offered_incompatible_qos(|_, _| ())
+            .with_publication_matched(|_, _| ());
+
+        let _ = Writer::new(&topic)
+            .unwrap()
+            .with_listener(&listener)
+            .unwrap();
+
+        let mut writer = Writer::new(&topic).unwrap();
+        writer.set_listener(&listener).unwrap();
+        writer.unset_listener().unwrap();
+    }
+
+    #[test]
+    fn test_writer_with_listener_on_invalid_writer() {
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+        let topic = Topic::<crate::tests::topic::Data>::new(&participant, &topic_name).unwrap();
+
+        let listener = crate::WriterListener::new();
+
+        let mut writer = Writer::new(&topic).unwrap();
+        let writer_id = writer.inner;
+        writer.inner = 0;
+        let result = writer.set_listener(&listener).unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        let result = writer.unset_listener().unwrap_err();
+        assert_eq!(result, crate::Error::BadParameter);
+        writer.inner = writer_id;
     }
 }
