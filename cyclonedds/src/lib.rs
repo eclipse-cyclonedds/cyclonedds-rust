@@ -2,6 +2,7 @@ pub mod cdr_bounds;
 mod duration;
 pub mod entity;
 mod error;
+pub mod sample;
 pub mod state;
 pub mod status;
 mod time;
