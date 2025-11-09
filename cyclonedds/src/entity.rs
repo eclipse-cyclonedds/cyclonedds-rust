@@ -1,4 +1,11 @@
 //! The base of the DDS entity hierarchy.
+//!
+//! Most DDS objects ([`Participant`](crate::Participant),
+//! [`Topic`](crate::Topic), [`Reader`](crate::Reader),
+//! [`Writer`](crate::Writer), and others) are entities. See the
+//! [implementors of `Entity`](Entity#implementors) for the full list. This
+//! module provides the [`Entity`] trait with the common methods available to
+//! all entities.
 
 use crate::internal::ffi;
 use crate::{Result, Status};
@@ -20,6 +27,30 @@ pub struct EntityId {
 
 // TODO should the Entity trait be sealed?
 /// Common interface implemented by all members of the DDS entity hierarchy.
+///
+/// - [`Participant`](crate::Participant): the root entity representing
+///   membership in a domain.
+///   - [`WaitSet`](crate::WaitSet): blocks until one or more attached
+///     conditions are triggered.
+///   - [`GuardCondition`](crate::GuardCondition): a manually triggered
+///     condition for use with a [`WaitSet`](crate::WaitSet).
+///   - [`Topic<T>`](crate::Topic): names and types a data channel for a
+///     specific payload type `T`.
+///   - [`Publisher`](crate::Publisher): groups [`Writers`](crate::Writer) and
+///     controls their shared [`QoS`](crate::QoS).
+///     - [`Writer<T>`](crate::Writer): publishes samples of type `T` to a
+///       [`Topic`](crate::Topic).
+///   - [`Subscriber`](crate::Subscriber): groups [`Readers`](crate::Reader) and
+///     controls their shared [`QoS`](crate::QoS).
+///     - [`Reader<T>`](crate::Reader): receives samples of type `T` from a
+///       [`Topic`](crate::Topic).
+///       - [`ReadCondition<T>`](crate::ReadCondition): filters
+///         [`Reader`](crate::Reader) samples by
+///         [`sample`](crate::state::sample), [`view`](crate::state::view), and
+///         [`instance`](crate::state::instance) state.
+///       - [`QueryCondition<T, F>`](crate::QueryCondition): filters
+///         [`Reader`](crate::Reader) samples by [`sample state`](crate::State)
+///         and a predicate.
 pub trait Entity {
     /// Returns the [`EntityId`] of this entity.
     ///
@@ -89,6 +120,17 @@ pub trait Entity {
         Ok(InstanceHandle { inner })
     }
 
+    /// Returns the set of status flags that have changed since they were last
+    /// [`read`](crate::Reader::read) or [`taken`](crate::Reader::take).
+    ///
+    /// # Errors
+    ///
+    /// - Returns an [`Error`](crate::Error) if the status bits of the
+    ///   corresponding entity could not be retrieved (e.g. the entity no longer
+    ///   exists).
+    ///
+    /// - Returns [`BadParameter`](crate::Error::BadParameter) if the retrieved
+    ///   bits do not correspond to a valid [`Status`].
     ///
     /// # Examples
     ///
@@ -126,6 +168,21 @@ pub trait Entity {
         Status::from_bits(status).ok_or(crate::error::Error::BadParameter)
     }
 
+    /// Takes and clears the status flags matching `mask`, or all flags if
+    /// `mask` is `None`.
+    ///
+    /// Unlike [`read_status`](Entity::read_status), this clears the returned
+    /// flags on the entity.
+    ///
+    /// # Errors
+    ///
+    /// - Returns an [`Error`](crate::Error) if the status bits of the
+    ///   corresponding entity could not be retrieved (e.g. the entity no longer
+    ///   exists or the status mask contains entries that do not apply to the
+    ///   entity type).
+    ///
+    /// - Returns [`BadParameter`](crate::Error::BadParameter) if the retrieved
+    ///   bits do not correspond to a valid [`Status`].
     ///
     /// # Examples
     ///
@@ -170,6 +227,9 @@ pub trait Entity {
     /// - Returns an [`Error`](crate::Error) if the status bits of the
     ///   corresponding entity could not be retrieved (e.g. the entity no longer
     ///   exists).
+    ///
+    /// - Returns [`BadParameter`](crate::Error::BadParameter) if the retrieved
+    ///   bits do not correspond to a valid [`Status`].
     ///
     /// # Examples
     ///

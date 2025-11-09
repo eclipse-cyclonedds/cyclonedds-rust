@@ -7,6 +7,12 @@
 //! This distinction arises in DDS when an instance is disposed or unregistered,
 //! the reader receives a notification carrying only the key rather than a full
 //! payload.
+//!
+//! Samples are obtained via [`Reader::peek`](crate::Reader::peek),
+//! [`Reader::read`](crate::Reader::read), and
+//! [`Reader::take`](crate::Reader::take), or their equivalents on
+//! [`ReadCondition`](crate::ReadCondition) and
+//! [`QueryCondition`](crate::QueryCondition).
 
 use crate::Topicable;
 
