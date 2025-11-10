@@ -41,6 +41,22 @@ pub mod topic {
         pub message: String,
     }
 
+    impl crate::Topicable for Data {
+        type Key = (u32, i32);
+
+        fn from_key(key: &Self::Key) -> Self {
+            Self {
+                x: key.0,
+                y: key.1,
+                ..Default::default()
+            }
+        }
+
+        fn as_key(&self) -> Self::Key {
+            (self.x, self.y)
+        }
+    }
+
     /// Returns a unique topic name backed by a random UUID v4 (to prevent topic
     /// collisions between concurrently running tests).
     pub fn unique_name() -> String {

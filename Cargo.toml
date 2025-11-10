@@ -1,5 +1,5 @@
 [workspace]
-members = ["cyclonedds", "cyclonedds-sys"]
+members = ["cyclonedds", "cyclonedds-sys", "cyclonedds-macros"]
 resolver = "3"
 
 [workspace.package]
@@ -13,6 +13,7 @@ description = "Rust binding for Eclipse Cyclone DDS"
 
 [workspace.dependencies]
 eclipse-cyclonedds-sys = { version = "0.0.1", path = "cyclonedds-sys" }
+eclipse-cyclonedds-macros = { version = "0.0.1", path = "cyclonedds-macros" }
 
 [workspace.metadata.crane]
 name = "eclipse-cyclonedds"

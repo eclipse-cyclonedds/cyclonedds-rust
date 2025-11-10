@@ -21,5 +21,6 @@ trailers:
     values:
       # keep-sorted start
       - cyclonedds
+      - cyclonedds-derive
       - cyclonedds-sys
       # keep-sorted end

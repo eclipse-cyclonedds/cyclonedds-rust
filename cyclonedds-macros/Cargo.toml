@@ -1,0 +1,24 @@
+[package]
+name = "eclipse-cyclonedds-macros"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+
+[lib]
+name = "cyclonedds_macros"
+proc-macro = true
+
+[dependencies]
+darling = "0.23.0"
+proc-macro2 = { version = "1", default-features = false }
+quote = { version = "1", default-features = false }
+syn = { version = "2", default-features = false, features = [
+  "parsing",
+  "proc-macro",
+  "derive",
+  "printing",
+] }

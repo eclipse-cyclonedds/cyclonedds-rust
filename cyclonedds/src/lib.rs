@@ -1,7 +1,10 @@
 pub mod cdr_bounds;
 mod error;
+mod topicable;
 
+pub use cyclonedds_macros::Topicable;
 pub use error::{Error, Result};
+pub use topicable::{Key, Topicable};
 
 #[cfg(feature = "internal")]
 pub mod internal;
