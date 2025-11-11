@@ -22,3 +22,37 @@ impl<T: std::hash::Hash> Hash32 for T {
         hash
     }
 }
+
+pub trait CdrHeader {
+    fn cdr_header() -> [u8; 4];
+}
+
+impl CdrHeader for byteorder::LittleEndian {
+    fn cdr_header() -> [u8; 4] {
+        [0x00, 0x01, 0x00, 0x00]
+    }
+}
+
+impl CdrHeader for byteorder::BigEndian {
+    fn cdr_header() -> [u8; 4] {
+        [0x00, 0x00, 0x00, 0x00]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cdr_header_configurations() {
+        // NOTE: this is a trivial test for now, but will be expanded as the
+        // additional CDR options are added.
+        let expected = [0x00, 0x01, 0x00, 0x00];
+        let actual = byteorder::LittleEndian::cdr_header();
+        assert_eq!(expected, actual);
+
+        let expected = [0x00, 0x00, 0x00, 0x00];
+        let actual = byteorder::BigEndian::cdr_header();
+        assert_eq!(expected, actual);
+    }
+}
