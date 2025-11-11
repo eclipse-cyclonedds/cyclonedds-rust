@@ -16,6 +16,7 @@ eclipse-cyclonedds-sys = { workspace = true }
 eclipse-cyclonedds-macros = { workspace = true }
 bitflags = "2.10.0"
 byteorder = "1.5.0"
+cdr-encoding = "0.10.2"
 serde = "1.0.228"
 md-5 = "0.11.0"
 
