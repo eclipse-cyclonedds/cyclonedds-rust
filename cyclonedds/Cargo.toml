@@ -26,3 +26,6 @@ uuid = { version = "1.19.0", features = ["v4"] }
 
 [features]
 internal = []
+
+[lints]
+workspace = true

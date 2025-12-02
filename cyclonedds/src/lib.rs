@@ -150,6 +150,23 @@
 //! specification](https://www.omg.org/spec/DDS/), and the
 //! [`examples`](https://github.com/eclipse-cyclonedds/cyclonedds-rust/tree/master/cyclonedds/examples).
 
+// NOTE: this is specified here rather than in the common lints within the workspace `Cargo.toml`
+// because excluding it for the examples and integration tests is problematic.
+#![deny(unused_crate_dependencies)]
+// NOTE: active lint levels are defined in the workspace `Cargo.toml`. J
+// These `allow`s for the test exist for lints that significantly reduce test readability or
+// ergonomics.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::cast_sign_loss,
+        clippy::cognitive_complexity,
+        clippy::indexing_slicing,
+        clippy::too_many_lines,
+        clippy::undocumented_unsafe_blocks,
+    )
+)]
+
 pub mod cdr_bounds;
 mod domain;
 mod duration;
