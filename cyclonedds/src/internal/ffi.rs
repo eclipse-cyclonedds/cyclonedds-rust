@@ -85,6 +85,7 @@ pub fn ddsi_serdata_new(
 
 /// Increment the reference count of a serdata. This is primarily used by the
 /// [`Serdata`][`crate::internal::serdata::Serdata`] wrapper.
+#[allow(unused)]
 #[inline]
 pub fn ddsi_serdata_ref(serdata: &mut cyclonedds_sys::ddsi_serdata) {
     unsafe { cyclonedds_sys::ddsi_serdata_ref(serdata) };
@@ -124,6 +125,7 @@ pub fn ddsi_sertype_new(
 /// Increment the reference count of a sertype. This is primarily used by the
 /// [`Sertype`][`crate::internal::sertype::Sertype`] wrapper.
 #[inline]
+#[allow(unused)]
 pub fn ddsi_sertype_ref(sertype: &mut cyclonedds_sys::ddsi_sertype) {
     unsafe { cyclonedds_sys::ddsi_sertype_ref(sertype) };
 }

@@ -56,8 +56,10 @@ impl SertypeVersion {
 pub const ARG: *mut std::ffi::c_void = std::ptr::null_mut();
 
 /// A flag specifying that the data representation in use corresponds to XCDR1.
+#[allow(unused)]
 pub const DATA_REPRESENTATION_XCDR1: u32 = cyclonedds_sys::DDS_DATA_REPRESENTATION_XCDR1;
 /// A flag specifying that the data representation in use corresponds to XCDR2.
+#[allow(unused)]
 pub const DATA_REPRESENTATION_XCDR2: u32 = cyclonedds_sys::DDS_DATA_REPRESENTATION_XCDR2;
 
 /// This exists to ensure that initializing `cyclonedds_sys::ddsi_sertype_ops`
@@ -251,6 +253,7 @@ where
 
 /// TODO Unimplemented.
 /// # Safety
+#[allow(unused)]
 pub unsafe extern "C" fn type_id<T>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     kind: cyclonedds_sys::ddsi_typeid_kind_t,
@@ -269,6 +272,7 @@ where
 
 /// TODO Unimplemented.
 /// # Safety
+#[allow(unused)]
 pub unsafe extern "C" fn type_map<T>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
 ) -> *mut cyclonedds_sys::ddsi_typemap
@@ -285,6 +289,7 @@ where
 
 /// TODO Unimplemented.
 /// # Safety
+#[allow(unused)]
 pub unsafe extern "C" fn type_info<T>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
 ) -> *mut cyclonedds_sys::ddsi_typeinfo
@@ -301,6 +306,7 @@ where
 
 /// TODO Unimplemented.
 /// # Safety
+#[allow(unused)]
 pub unsafe extern "C" fn derive_sertype<T>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     data_representation: cyclonedds_sys::dds_data_representation_id_t,
