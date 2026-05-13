@@ -1,0 +1,172 @@
+name: run rust checks
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-linux:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          submodules: true
+
+      - name: set up nix
+        uses: nixbuild/nix-quick-install-action@2c9db80fb984ceb1bcaa77cdda3fdf8cfba92035 # v34
+        with:
+          nix_conf: |
+            keep-env-derivations = true
+            keep-outputs = true
+      - name: cache nix store
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}
+          gc-max-store-size-linux: 9G
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}
+          purge-created: 0
+          purge-last-accessed: P1DT12H
+          purge-primary-key: never
+
+      - name: set up nix devshells
+        run: |
+         nix develop
+         nix develop .#nightly
+
+      - name: check rust
+        run: nix develop -c cargo check
+      - name: build rust
+        run: nix develop -c cargo build
+      - name: run clippy
+        run: nix develop -c cargo clippy -- --deny warnings
+      - name: run tests
+        run: nix develop -c cargo nextest run
+      - name: run doc tests
+        run: nix develop -c cargo test --doc
+
+      - name: check coverage
+        run: nix develop -c cargo llvm-cov nextest --fail-under-functions 95
+          --fail-under-lines 95 --fail-under-regions 95
+      - name: check coverage (with branch coverage)
+        run: nix develop .#nightly -c cargo llvm-cov nextest --branch --fail-under-functions 95
+          --fail-under-lines 95 --fail-under-regions 95
+      - name: run cargo deny
+        run: nix develop -c cargo deny check
+
+      - name: run tests under address sanitizer
+        run: nix develop --set-env-var RUSTFLAGS "-Z sanitizer=address" .#nightly -c cargo nextest run --target ${{ runner.arch == 'X64' && 'x86_64' || 'aarch64' }}-unknown-linux-gnu
+      - name: run tests under leak sanitizer
+        run: nix develop --set-env-var RUSTFLAGS "-Z sanitizer=leak" .#nightly -c cargo nextest run --target ${{ runner.arch == 'X64' && 'x86_64' || 'aarch64' }}-unknown-linux-gnu
+
+      - name: run tests with vendored cyclone
+        run: |
+          nix develop .#vendoring -c cargo nextest run --features vendored
+          nix develop .#vendoring -c cargo test --doc --features vendored
+         
+      - name: run additional flake checks
+        run: nix flake check
+
+  check-macos:
+    strategy:
+      matrix:
+        os: [macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          submodules: true
+
+      - name: set up nix
+        uses: nixbuild/nix-quick-install-action@2c9db80fb984ceb1bcaa77cdda3fdf8cfba92035 # v34
+        with:
+          nix_conf: |
+            keep-env-derivations = true
+            keep-outputs = true
+      - name: cache nix store
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}
+          gc-max-store-size-linux: 9G
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}
+          purge-created: 0
+          purge-last-accessed: P1DT12H
+          purge-primary-key: never
+
+      - name: set up nix devshells
+        run: |
+         nix develop
+         nix develop .#nightly
+
+      - name: check rust
+        run: nix develop -c cargo check
+      - name: build rust
+        run: nix develop -c cargo build
+      - name: run clippy
+        run: nix develop -c cargo clippy -- --deny warnings
+      - name: run tests
+        run: nix develop -c cargo nextest run
+      - name: run doc tests
+        run: nix develop -c cargo test --doc
+
+      - name: check coverage
+        run: nix develop -c cargo llvm-cov nextest --fail-under-functions 95
+          --fail-under-lines 95 --fail-under-regions 95
+      - name: check coverage (with branch coverage)
+        run: nix develop .#nightly -c cargo llvm-cov nextest --branch --fail-under-functions 95
+          --fail-under-lines 95 --fail-under-regions 95
+      - name: run cargo deny
+        run: nix develop -c cargo deny check
+
+      - name: run tests with vendored cyclone
+        run: |
+          nix develop .#vendoring -c cargo nextest run --features vendored
+          nix develop .#vendoring -c cargo test --doc --features vendored
+         
+      - name: run additional flake checks
+        run: nix flake check
+
+
+  check-windows:
+    strategy:
+      matrix:
+        # os: [windows-latest]
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          submodules: true
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo check
+        run: cargo check --features vendored
+
+      - name: cargo build
+        run: cargo build --features vendored
+
+      - name: run clippy
+        run: cargo clippy --features vendored -- --deny warnings
+
+      - name: run tests
+        run: cargo test --features vendored
+
+        # TODO add semver checks
+        # TODO add all the checkers
