@@ -32,6 +32,20 @@ pub use topic::Topic;
 pub use topicable::{Key, Topicable};
 pub use writer::Writer;
 
+pub mod builder {
+    //! Builder types for constructing DDS entities with custom `QoS` and
+    //! listeners.
+    //!
+    //! Each builder is also accessible via the `builder` associated function on
+    //! its corresponding entity type.
+    pub use crate::participant::ParticipantBuilder;
+    pub use crate::publisher::PublisherBuilder;
+    pub use crate::reader::ReaderBuilder;
+    pub use crate::subscriber::SubscriberBuilder;
+    pub use crate::topic::TopicBuilder;
+    pub use crate::writer::WriterBuilder;
+}
+
 #[cfg(feature = "internal")]
 pub mod internal;
 #[cfg(not(feature = "internal"))]
