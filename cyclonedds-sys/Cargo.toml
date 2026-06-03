@@ -15,3 +15,12 @@ name = "cyclonedds_sys"
 
 [build-dependencies]
 bindgen = "0.72.1"
+cmake = { version = "0.1.58", optional = true }
+filetime = { version = "0.2.29", optional = true }
+tempfile = { version = "3.27.0", optional = true }
+
+[features]
+vendored = ["dep:cmake", "dep:tempfile", "dep:filetime"]
+
+[package.metadata.docs.rs]
+features = ["vendored"]

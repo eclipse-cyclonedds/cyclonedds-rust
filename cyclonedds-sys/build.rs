@@ -91,8 +91,19 @@ pub enum BuildError {
     Bindgen {
         source: bindgen::BindgenError,
     },
+    Vendoring {
+        message: String,
+        source: VendoringError,
+    },
 }
 
+#[derive(Debug)]
+pub enum VendoringError {
+    Io(std::io::Error),
+    StripPrefix(std::path::StripPrefixError),
+}
+
+#[cfg(not(feature = "vendored"))]
 pub fn generate_bindings(
     mut bindgen: bindgen::Builder,
     _target: &Target,
@@ -115,6 +126,136 @@ pub fn generate_bindings(
 
         bindgen = bindgen.clang_arg(format!("-I{}", cyclonedds_home.join("include").display()));
     }
+
+    // Prepare the bindings.
+    bindgen
+        .generate()
+        .map_err(|source| BuildError::Bindgen { source })
+}
+
+#[cfg(feature = "vendored")]
+pub fn generate_bindings(
+    mut bindgen: bindgen::Builder,
+    target: &Target,
+) -> Result<bindgen::Bindings, BuildError> {
+    fn for_each_file(
+        path: &Path,
+        f: &impl Fn(&Path) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        for entry in std::fs::read_dir(path).map_err(|source| BuildError::Vendoring {
+            message: format!("failed to read directory: {path:?}"),
+            source: VendoringError::Io(source),
+        })? {
+            let entry = entry.map_err(|source| BuildError::Vendoring {
+                message: "encountered invalid directory entry".to_string(),
+                source: VendoringError::Io(source),
+            })?;
+            if entry
+                .file_type()
+                .map_err(|source| BuildError::Vendoring {
+                    message: "unable to determine file type for directory entry".to_string(),
+                    source: VendoringError::Io(source),
+                })?
+                .is_dir()
+            {
+                for_each_file(&entry.path(), f)?;
+            } else {
+                f(&entry.path())?;
+            }
+        }
+        Ok(())
+    }
+
+    // Build Cyclone DDS from vendored sources.
+    println!("cargo:rerun-if-changed=vendor/cyclonedds-c");
+    let cyclonedds_c_out_path = PathBuf::from(env("OUT_DIR")?).join("cyclonedds-c-build");
+
+    let tempdir = tempfile::tempdir().map_err(|source| BuildError::Vendoring {
+        message: "failed to create tempdir".to_string(),
+        source: VendoringError::Io(source),
+    })?;
+
+    let original_vendored_src = Path::new("vendor/cyclonedds-c");
+    let tempdir_vendored_src = tempdir.path().join("cyclonedds-c-src");
+
+    for_each_file(original_vendored_src, &|path| {
+        let relative =
+            path.strip_prefix(original_vendored_src)
+                .map_err(|source| BuildError::Vendoring {
+                    message: format!(
+                        "could not strip prefix: {path:?} from {original_vendored_src:?}"
+                    ),
+                    source: VendoringError::StripPrefix(source),
+                })?;
+        let destination = tempdir_vendored_src.join(relative);
+        std::fs::create_dir_all(destination.parent().unwrap()).map_err(|source| {
+            BuildError::Vendoring {
+                message: format!("could not create directory for {destination:?}"),
+                source: VendoringError::Io(source),
+            }
+        })?;
+        std::fs::copy(path, &destination).map_err(|source| BuildError::Vendoring {
+            message: format!("could not copy sources from {path:?} to {destination:?}"),
+            source: VendoringError::Io(source),
+        })?;
+        Ok(())
+    })?;
+
+    let cross_compiling = env("HOST")? != env("TARGET")?;
+
+    if cross_compiling && target.os == "windows" {
+        // Fixup cross-compile issues when targeting Windows.
+        let cmakelists = tempdir_vendored_src.join("CMakeLists.txt");
+        let contents =
+            std::fs::read_to_string(&cmakelists).map_err(|source| BuildError::Vendoring {
+                message: format!("could not read CMakeLists.txt from tempdir: {cmakelists:?}"),
+                source: VendoringError::Io(source),
+            })?;
+        let patched = contents.replace("include(CMakeCPack.cmake)", "");
+
+        std::fs::write(&cmakelists, patched).map_err(|source| BuildError::Vendoring {
+            message: format!("could not write cross-compile changes to {cmakelists:?}"),
+            source: VendoringError::Io(source),
+        })?;
+    }
+
+    let mut cyclonedds_cmake = cmake::Config::new(&tempdir_vendored_src);
+    let mut cyclonedds_cmake = cyclonedds_cmake.out_dir(&cyclonedds_c_out_path);
+
+    cyclonedds_cmake = cyclonedds_cmake
+        .out_dir(&cyclonedds_c_out_path)
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("BUILD_IDLC", "OFF")
+        .define("BUILD_DDSPERF", "OFF")
+        .define("ENABLE_SSL", "NO")
+        .define("ENABLE_SECURITY", "NO")
+        .define("CMAKE_INSTALL_LIBDIR", "lib");
+
+    if cross_compiling {
+        cyclonedds_cmake = cyclonedds_cmake.define("CMAKE_CROSSCOMPILING", "ON");
+    }
+
+    let cyclonedds_c = cyclonedds_cmake.build();
+
+    // Fix rebuilds of the -sys crate.
+    let time = cyclonedds_c_out_path
+        .metadata()
+        .map(|metadata| filetime::FileTime::from_creation_time(&metadata))
+        .ok()
+        .flatten()
+        .unwrap_or(filetime::FileTime::zero());
+    for_each_file(&cyclonedds_c_out_path.join("include"), &|path| {
+        filetime::set_file_mtime(path, time).map_err(|source| BuildError::Vendoring {
+            message: format!("could not reset mtime (to reduce rebuilds) on {path:?}"),
+            source: VendoringError::Io(source),
+        })
+    })?;
+
+    println!(
+        "cargo:rustc-link-search={}",
+        cyclonedds_c.join("lib").display()
+    );
+    bindgen = bindgen.clang_arg(format!("-I{}", cyclonedds_c.join("include").display()));
 
     // Prepare the bindings.
     bindgen
