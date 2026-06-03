@@ -7,6 +7,9 @@
 let
   treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
     projectRootFile = "flake.nix";
+    settings.excludes = [
+      "cyclonedds-sys/vendor/**"
+    ];
 
     programs = {
       # Nix

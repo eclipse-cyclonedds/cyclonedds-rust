@@ -39,11 +39,11 @@
     "cyclonedds-sources": {
       "flake": false,
       "locked": {
-        "lastModified": 1780394341,
-        "narHash": "sha256-Uvm5S4fmjGqh2DJukzCEHJZtjIW8qQAF1I2cSdMSbQw=",
+        "lastModified": 1781263163,
+        "narHash": "sha256-B6plWUqBOz9taouw+LQIC2JMtf2sSAxrQC+OQzg5Dlo=",
         "owner": "eclipse-cyclonedds",
         "repo": "cyclonedds",
-        "rev": "f2aaccb4873c4bc33d59ee45c8568a4653900f78",
+        "rev": "57d553b16391e03cbcdde8becc7b1b41ac1589b4",
         "type": "github"
       },
       "original": {
