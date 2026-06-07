@@ -78,6 +78,9 @@ jobs:
       - name: run additional flake checks
         run: nix flake check
 
+      - name: run additional flake checks with submodules
+        run: nix flake check .?submodules=1
+
   check-macos:
     strategy:
       matrix:
@@ -140,6 +143,8 @@ jobs:
       - name: run additional flake checks
         run: nix flake check
 
+      - name: run additional flake checks with submodules
+        run: nix flake check .?submodules=1
 
   check-windows:
     strategy:
