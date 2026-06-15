@@ -3,7 +3,7 @@ members = ["cyclonedds", "cyclonedds-sys", "cyclonedds-macros"]
 resolver = "3"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 homepage = "https://cyclonedds.io/"
 repository = "https://github.com/eclipse-cyclonedds/cyclonedds-rust"
@@ -12,8 +12,8 @@ authors = ["Troy Karan Harrison <troy.harrison@zettascale.tech>"]
 description = "Rust binding for Eclipse Cyclone DDS"
 
 [workspace.dependencies]
-eclipse-cyclonedds-sys = { version = "0.0.1", path = "cyclonedds-sys" }
-eclipse-cyclonedds-macros = { version = "0.0.1", path = "cyclonedds-macros" }
+eclipse-cyclonedds-sys = { path = "cyclonedds-sys" }
+eclipse-cyclonedds-macros = { path = "cyclonedds-macros" }
 
 [workspace.metadata.crane]
 name = "eclipse-cyclonedds"
