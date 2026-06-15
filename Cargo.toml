@@ -12,8 +12,8 @@ authors = ["Troy Karan Harrison <troy.harrison@zettascale.tech>"]
 description = "Rust binding for Eclipse Cyclone DDS"
 
 [workspace.dependencies]
-eclipse-cyclonedds-sys = { path = "cyclonedds-sys" }
-eclipse-cyclonedds-macros = { path = "cyclonedds-macros" }
+eclipse-cyclonedds-sys = { version = "0.0.2", path = "cyclonedds-sys" }
+eclipse-cyclonedds-macros = { version = "0.0.2", path = "cyclonedds-macros" }
 
 [workspace.metadata.crane]
 name = "eclipse-cyclonedds"
