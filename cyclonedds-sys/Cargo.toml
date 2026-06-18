@@ -1,12 +1,18 @@
 [package]
 name = "eclipse-cyclonedds-sys"
 authors.workspace = true
-description.workspace = true
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 version.workspace = true
+description = "Raw FFI Bindings for Eclipse Cyclone DDS"
+categories = [
+  "automotive",
+  "external-ffi-bindings",
+  "network-programming",
+  "science::robotics",
+]
 
 [lib]
 name = "cyclonedds_sys"
