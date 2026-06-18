@@ -27,7 +27,9 @@ let
       fs.toSource {
         root = src;
         fileset = fs.unions [
+          # `wrapper.h` for bindgen
           (fs.fileFilter (file: file.hasExt "h") src)
+          # crate sources
           (fs.fromSource (crane-lib.cleanCargoSource src))
         ];
       };
