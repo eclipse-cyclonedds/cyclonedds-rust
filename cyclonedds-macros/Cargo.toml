@@ -22,3 +22,6 @@ syn = { version = "2", default-features = false, features = [
   "derive",
   "printing",
 ] }
+
+[dev-dependencies]
+trybuild = "1.0.116"

@@ -29,6 +29,8 @@ let
         fileset = fs.unions [
           # `wrapper.h` for bindgen
           (fs.fileFilter (file: file.hasExt "h") src)
+          # `ui` snapshot tests for `trybuild`
+          (fs.fileFilter (file: file.hasExt "stderr") src)
           # crate sources
           (fs.fromSource (crane-lib.cleanCargoSource src))
         ];

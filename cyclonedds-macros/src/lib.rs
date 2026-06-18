@@ -187,12 +187,9 @@ impl ToTokens for TopicableAttributes {
 #[proc_macro_derive(Topicable, attributes(dds))]
 pub fn derive_topicable(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
-    let topicable = match TopicableAttributes::from_derive_input(&input) {
-        Ok(v) => v,
-        Err(e) => return e.write_errors().into(),
-    };
-
-    topicable.to_token_stream().into()
+    TopicableAttributes::from_derive_input(&input)
+        .map(|topicable| topicable.to_token_stream().into())
+        .unwrap_or_else(|e| e.write_errors().into())
 }
 
 #[cfg(test)]
