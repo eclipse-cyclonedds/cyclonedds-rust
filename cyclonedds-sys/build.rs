@@ -229,7 +229,9 @@ pub fn generate_bindings(
         .define("BUILD_DDSPERF", "OFF")
         .define("ENABLE_SSL", "NO")
         .define("ENABLE_SECURITY", "NO")
-        .define("CMAKE_INSTALL_LIBDIR", "lib");
+        .define("CMAKE_INSTALL_LIBDIR", "lib")
+        // NOTE: this is to keep the symbols when building with `--release`.
+        .define("ENABLE_LTO", "NO");
 
     if cross_compiling {
         cyclonedds_cmake = cyclonedds_cmake.define("CMAKE_CROSSCOMPILING", "ON");
