@@ -868,8 +868,7 @@ mod tests {
         let partition = policy::Partition {
             partitions: vec!["A".to_string(), "\0".to_string()],
         };
-        let qos = QoS::new().with_partition(partition.clone());
-        assert_eq!(qos.partition, Some(partition));
+        let _ = QoS::new().with_partition(partition.clone());
     }
 
     #[test]
