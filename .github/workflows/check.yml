@@ -52,9 +52,13 @@ jobs:
       - name: run clippy
         run: nix develop -c cargo clippy -- --deny warnings
       - name: run tests
-        run: nix develop -c cargo nextest run
+        run: |
+          nix develop -c cargo nextest run
+          nix develop -c cargo nextest run --release
       - name: run doc tests
-        run: nix develop -c cargo test --doc
+        run: |
+          nix develop -c cargo test --doc
+          nix develop -c cargo test --doc --release
 
       - name: check coverage
         run: nix develop -c cargo llvm-cov nextest --fail-under-functions 95
@@ -73,7 +77,12 @@ jobs:
       - name: run tests with vendored cyclone
         run: |
           nix develop .#vendoring -c cargo nextest run --features vendored
+          nix develop .#vendoring -c cargo nextest run --features vendored --release
+
+      - name: run doc tests with vendored cyclone
+        run: |
           nix develop .#vendoring -c cargo test --doc --features vendored
+          nix develop .#vendoring -c cargo test --doc --features vendored --release
          
       - name: run additional flake checks
         run: nix flake check
@@ -135,7 +144,12 @@ jobs:
       - name: run tests with vendored cyclone
         run: |
           nix develop .#vendoring -c cargo nextest run --features vendored
+          nix develop .#vendoring -c cargo nextest run --features vendored --release
+
+      - name: run doc tests with vendored cyclone
+        run: |
           nix develop .#vendoring -c cargo test --doc --features vendored
+          nix develop .#vendoring -c cargo test --doc --features vendored --release
          
       - name: run additional flake checks
         run: nix flake check
@@ -165,7 +179,9 @@ jobs:
         run: cargo clippy --features vendored -- --deny warnings
 
       - name: run tests
-        run: cargo test --features vendored
+        run: |
+          cargo test --features vendored
+          cargo test --features vendored --release
 
         # TODO add semver checks
         # TODO add all the checkers
