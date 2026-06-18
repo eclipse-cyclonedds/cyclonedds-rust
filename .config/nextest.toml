@@ -1,2 +1,7 @@
 [profile.default]
 slow-timeout = { period = "5s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+# Increase timeout for trybuild compilation
+filter = 'package(eclipse-cyclonedds-macros)'
+slow-timeout = { period = "30s", terminate-after = 2 }
