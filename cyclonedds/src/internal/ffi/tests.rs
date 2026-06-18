@@ -1838,3 +1838,31 @@ fn test_sertype_ops_serialize_into() {
     crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
     let _ = Box::into_raw(sertype);
 }
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn test_sertype_version_conversion() {
+    let version = crate::internal::ffi::sertype_ops::SertypeVersion::V0
+        .as_ffi()
+        .unwrap();
+
+    let version = version as usize;
+
+    let expected = cyclonedds_sys::ddsi_sertype_v0 as *const () as usize;
+
+    assert_eq!(version, expected);
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn test_sertype_version_conversion() {
+    let version = crate::internal::ffi::sertype_ops::SertypeVersion::V0
+        .as_ffi()
+        .unwrap();
+
+    let version = usize::from(version);
+
+    let expected = 0x01;
+
+    assert_eq!(version, expected);
+}
