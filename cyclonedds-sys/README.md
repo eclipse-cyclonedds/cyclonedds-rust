@@ -29,14 +29,14 @@ For normal DDS applications, add the main binding:
 
 ```toml
 [dependencies]
-eclipse-cyclonedds = "0.0.3"
+eclipse-cyclonedds = "0.0.4"
 ```
 
 Use this crate directly for raw FFI integration:
 
 ```toml
 [dependencies]
-eclipse-cyclonedds-sys = "0.0.3"
+eclipse-cyclonedds-sys = "0.0.4"
 ```
 
 The crate exposes the generated bindings under the Rust library name
@@ -76,7 +76,7 @@ To build Cyclone DDS from the sources bundled with this crate, enable the
 
 ```toml
 [dependencies]
-eclipse-cyclonedds-sys = { version = "0.0.3", features = ["vendored"] }
+eclipse-cyclonedds-sys = { version = "0.0.4", features = ["vendored"] }
 ```
 
 It requires `cmake` and `libclang` to be available.

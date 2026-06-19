@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-cyclonedds"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-cyclonedds-macros"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-cyclonedds-sys"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "bindgen",
  "cmake",
