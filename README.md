@@ -249,7 +249,7 @@ will be invisible to each other if their domain IDs differ.
 
 Partitions introduce a second matching layer on top of topic name and `QoS`. A
 writer and reader on the same topic will not exchange samples unless they share
-at least one partition string note that the empty string `""` a valid and
+at least one partition string. Note that the empty string `""` is a valid and
 distinct partition.
 
 ### Liveliness
@@ -265,7 +265,7 @@ matched/unmatched transitions on the reader side.
 in the reader cache, so subsequent reads with overlapping state masks may return
 the same samples again. `take` removes them, making those samples unavailable to
 any later call. Use `take` for queue-like consumption and `read` when you need
-to inspect the current state without draining it.
+to inspect the current state without draining the sample.
 
 Cyclone DDS also includes a `peek` call which reads without updating any sample
 or view state, so repeated peeks always see the same samples regardless of state
