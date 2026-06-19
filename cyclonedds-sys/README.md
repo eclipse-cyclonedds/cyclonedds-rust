@@ -5,6 +5,7 @@
 [![Community][community-shield]][community]
 [![Website][cyclonedds-homepage-shield]][cyclonedds-homepage]
 
+[![Code Coverage][codecov-shield]][codecov]
 [![Documentation][docs.rs-shield]][docs.rs]
 [![Dependency Status][deps.rs-shield]][deps.rs]
 
@@ -107,6 +108,8 @@ For now, the MSRV is the latest stable Rust version at the time of release.
 
 [check-workflow]: https://github.com/eclipse-cyclonedds/cyclonedds-rust/actions/workflows/check.yml
 [check-workflow-status-shield]: https://shieldcn.dev/github/ci/eclipse-cyclonedds/cyclonedds-rust?no-track&mode=light&size=xs
+[codecov]: https://codecov.io/github/eclipse-cyclonedds/cyclonedds-rust
+[codecov-shield]: https://codecov.io/gh/eclipse-cyclonedds/cyclonedds-rust/graph/badge.svg
 [community]: https://discord.gg/4QQvWZrFKF
 [community-shield]: https://shieldcn.dev/discord/960814229844291604.svg?no-track&variant=branded&size=xs
 [crates.io]: https://crates.io/crates/eclipse-cyclonedds-sys
