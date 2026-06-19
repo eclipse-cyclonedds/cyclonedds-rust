@@ -26,11 +26,11 @@ impl SertypeVersion {
     pub(crate) const fn as_ffi(self) -> cyclonedds_sys::ddsi_sertype_v0_t {
         match self {
             SertypeVersion::V0 => {
-                #[cfg(not(target_family = "windows"))]
+                #[cfg(not(target_os = "windows"))]
                 {
                     Some(cyclonedds_sys::ddsi_sertype_v0)
                 }
-                #[cfg(target_family = "windows")]
+                #[cfg(target_os = "windows")]
                 {
                     // NOTE: Windows does not have the `dds_sertype_v0` constant exposed and the
                     // underlying value that v0 expects in the C lib for that
