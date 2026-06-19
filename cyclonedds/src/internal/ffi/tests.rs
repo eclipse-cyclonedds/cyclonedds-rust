@@ -1866,3 +1866,35 @@ fn test_sertype_version_conversion() {
 
     assert_eq!(version, expected);
 }
+
+#[test]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn test_from_ser_iov_with_msg_iovlen_t_out_of_bounds() {
+    let type_name =
+        std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
+    let topic_has_key = crate::tests::topic::Data::IS_KEYED;
+    let mut sertype = Box::new(
+        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
+            &type_name,
+            topic_has_key,
+        ),
+    );
+
+    let kind = crate::internal::serdata::Kind::Data;
+    let size = 0;
+
+    let containers_len: i32 = -1;
+    let serdata = unsafe {
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+            &raw mut sertype.inner,
+            kind.into(),
+            containers_len,
+            std::ptr::null_mut(),
+            size,
+        )
+    };
+    assert_eq!(serdata, std::ptr::null_mut());
+
+    crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
+    let _ = Box::into_raw(sertype);
+}
