@@ -208,26 +208,23 @@ where
 
     crate::internal::serdata::Kind::try_from(kind).map_or(std::ptr::null_mut(), |kind| {
         let mut buffer: Vec<u8> = Vec::with_capacity(size);
-        // NOTE: `ddsrt_msg_iovlen_t` might not be a usize on all platforms and
-        // so the clippy lint warning about unnecessary conversion should be
-        // suppressed.
-        #[allow(clippy::useless_conversion, clippy::manual_let_else)]
-        let containers_len = match usize::try_from(containers_len) {
-            Ok(size) => size,
-            Err(_) => return std::ptr::null_mut(),
+
+        // `ddsrt_msg_iovlen_t` is already a `usize` under Linux
+        #[cfg(not(target_os = "linux"))]
+        let Ok(containers_len) = usize::try_from(containers_len) else {
+            return std::ptr::null_mut();
         };
 
         let containers = unsafe { std::slice::from_raw_parts(containers, containers_len) };
 
         let mut offset = 0;
         for container in containers {
-            // NOTE: `ddsrt_msg_iovlen_t` might not be a usize on all platforms and
-            // so the clippy lint warning about unnecessary conversion should be
-            // suppressed.
-            #[allow(clippy::useless_conversion, clippy::manual_let_else)]
-            let container_iov_len = match usize::try_from(container.iov_len) {
-                Ok(size) => size,
-                Err(_) => return std::ptr::null_mut(),
+            let container_iov_len = container.iov_len;
+
+            // `ddsrt_iov_len_t` is a `usize` for every platform except Windows.
+            #[cfg(target_os = "windows")]
+            let Ok(container_iov_len) = usize::try_from(container_iov_len) else {
+                return std::ptr::null_mut();
             };
 
             let len = if container_iov_len + offset > size {
@@ -376,7 +373,12 @@ where
         .and_then(|serialized| {
             let slice = serialized.get(offset..)?;
             container.iov_base = slice.as_ptr() as *mut _;
-            container.iov_len = cyclonedds_sys::ddsrt_iov_len_t::try_from(slice.len()).ok()?;
+
+            let iov_len = slice.len();
+            // `ddsrt_iov_len_t` is a `usize` for every platform except Windows.
+            #[cfg(target_os = "windows")]
+            let iov_len = cyclonedds_sys::ddsrt_iov_len_t::try_from(iov_len).ok()?;
+            container.iov_len = iov_len;
             Some(())
         })
         .map(|()| unsafe { cyclonedds_sys::ddsi_serdata_ref(&raw const serdata.inner) })
