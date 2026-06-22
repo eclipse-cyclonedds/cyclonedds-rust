@@ -2,7 +2,7 @@
 ///
 /// Used in DDS for timeouts, lease durations, deadlines, and other
 /// interval-based [`QoS`](crate::QoS) policies.
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Duration {
     pub(crate) inner: cyclonedds_sys::dds_duration_t,
 }
@@ -237,6 +237,18 @@ impl From<Duration> for std::time::Duration {
     }
 }
 
+impl std::fmt::Debug for Duration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            &Duration::INFINITE => f.write_str("Duration::INFINITE"),
+            duration => f
+                .debug_tuple("Duration")
+                .field(&format_args!("{}ns", duration.inner))
+                .finish(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +413,12 @@ mod tests {
     #[should_panic(expected = "overflow when multiplying duration")]
     fn test_duration_mul_overflow() {
         let _ = Duration::from_nanos(i64::MAX) * 2;
+    }
+
+    #[test]
+    fn test_duration_debug() {
+        assert_eq!(format!("{:?}", Duration::default()), "Duration(0ns)");
+        assert_eq!(format!("{:?}", Duration::INFINITE), "Duration::INFINITE");
+        assert_eq!(format!("{:?}", Duration::from_nanos(42)), "Duration(42ns)");
     }
 }

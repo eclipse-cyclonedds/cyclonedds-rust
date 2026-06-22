@@ -3,7 +3,7 @@ use crate::Duration;
 /// An absolute point in time represented as nanoseconds since the UNIX epoch.
 ///
 /// Used in DDS for sample source timestamps and other time-stamped metadata.
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Time {
     pub(crate) inner: cyclonedds_sys::dds_time_t,
 }
@@ -155,6 +155,22 @@ impl From<Time> for std::time::SystemTime {
     }
 }
 
+impl std::fmt::Debug for Time {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            &Time::NEVER => f.write_str("Time::NEVER"),
+            time => {
+                let sec = time.inner.div_euclid(1_000_000_000);
+                let nsec = time.inner.rem_euclid(1_000_000_000);
+                f.debug_struct("Time")
+                    .field("sec", &sec)
+                    .field("nsec", &nsec)
+                    .finish()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,5 +279,23 @@ mod tests {
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(nanos as u64);
         let actual: std::time::SystemTime = time.into();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_time_debug() {
+        assert_eq!(format!("{:?}", Time::default()), "Time { sec: 0, nsec: 0 }");
+        assert_eq!(format!("{:?}", Time::NEVER), "Time::NEVER");
+        assert_eq!(
+            format!("{:?}", Time::from_nanos(42)),
+            "Time { sec: 0, nsec: 42 }"
+        );
+        assert_eq!(
+            format!("{:?}", Time::from_nanos(-42)),
+            "Time { sec: -1, nsec: 999999958 }"
+        );
+        assert_eq!(
+            format!("{:?}", Time::from_nanos(1_234_567_890_123_456_789)),
+            "Time { sec: 1234567890, nsec: 123456789 }"
+        );
     }
 }
