@@ -340,6 +340,9 @@ pub const fn dds_qos_set_entity_factory(
     autoenable_created_entities: bool,
 ) {
     // FIXME? there's no associated dds_qset_?
+    const DDSI_QP_ADLINK_ENTITY_FACTORY: u64 = 1 << 27;
+
+    qos.present |= DDSI_QP_ADLINK_ENTITY_FACTORY;
     qos.entity_factory.autoenable_created_entities =
         if autoenable_created_entities { 1 } else { 0 };
 }
