@@ -36,7 +36,7 @@ impl<'o> GuardCondition<'o> {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn new(owner: &'o dyn Entity) -> Result<Self> {
-        let owner = owner.id().inner;
+        let owner = owner.handle().inner;
         let inner = ffi::dds_create_guardcondition(owner)?;
         Ok(Self {
             inner,

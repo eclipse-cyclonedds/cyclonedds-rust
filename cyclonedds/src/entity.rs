@@ -19,9 +19,9 @@ pub struct InstanceHandle {
     pub(crate) inner: cyclonedds_sys::dds_instance_handle_t,
 }
 
-/// A raw entity ID for an entity.
+/// A local opaque handle for an entity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct EntityId {
+pub struct EntityHandle {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
 }
 
@@ -50,7 +50,7 @@ mod private {
 ///       - [`QueryCondition<T, F>`](crate::QueryCondition): filters [`Reader`](crate::Reader)
 ///         samples by [`sample state`](crate::State) and a predicate.
 pub trait Entity: private::Sealed {
-    /// Returns the [`EntityId`] of this entity.
+    /// Returns the [`EntityHandle`] of this entity.
     ///
     /// # Examples
     ///
@@ -70,12 +70,12 @@ pub trait Entity: private::Sealed {
     /// let reader = Reader::new(&topic)?;
     /// let writer = Writer::new(&topic)?;
     ///
-    /// // The reader and the writer have distinct IDs.
-    /// assert_ne!(reader.id(), writer.id());
+    /// // The reader and the writer have distinct handles.
+    /// assert_ne!(reader.handle(), writer.handle());
     ///
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    fn id(&self) -> EntityId;
+    fn handle(&self) -> EntityHandle;
 
     /// Returns the [`InstanceHandle`] of this entity.
     ///
@@ -113,7 +113,7 @@ pub trait Entity: private::Sealed {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     fn instance_handle(&self) -> Result<InstanceHandle> {
-        let entity = self.id();
+        let entity = self.handle();
         let inner = ffi::dds_get_instance_handle(entity.inner)?;
         Ok(InstanceHandle { inner })
     }
@@ -160,7 +160,7 @@ pub trait Entity: private::Sealed {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     fn status_changes(&self) -> Result<Status> {
-        let entity = self.id();
+        let entity = self.handle();
         let status = ffi::dds_get_status_changes(entity.inner)?;
         Status::from_bits(status).ok_or(crate::error::Error::BadParameter)
     }
@@ -209,7 +209,7 @@ pub trait Entity: private::Sealed {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     fn take_status(&self, mask: Option<Status>) -> Result<Status> {
-        let entity = self.id();
+        let entity = self.handle();
         let mask = mask.unwrap_or(Status::all()).bits();
         let status = ffi::dds_take_status(entity.inner, mask)?;
         Status::from_bits(status).ok_or(crate::error::Error::BadParameter)
@@ -255,7 +255,7 @@ pub trait Entity: private::Sealed {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     fn read_status(&self, mask: Option<Status>) -> Result<Status> {
-        let entity = self.id();
+        let entity = self.handle();
         let mask = mask.unwrap_or(Status::all()).bits();
         let status = ffi::dds_read_status(entity.inner, mask)?;
         Status::from_bits(status).ok_or(crate::error::Error::BadParameter)
@@ -298,7 +298,7 @@ pub trait Entity: private::Sealed {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     fn status_mask(&self) -> Result<Status> {
-        let entity = self.id();
+        let entity = self.handle();
         let mask = ffi::dds_get_status_mask(entity.inner)?;
         Status::from_bits(mask).ok_or(crate::error::Error::BadParameter)
     }
@@ -336,7 +336,7 @@ pub trait Entity: private::Sealed {
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     fn set_status_mask(&self, mask: Status) -> Result<()> {
-        let entity = self.id();
+        let entity = self.handle();
         let mask = mask.bits();
         ffi::dds_set_status_mask(entity.inner, mask)
     }
@@ -347,8 +347,8 @@ macro_rules! impl_entity {
         impl private::Sealed for $ty {}
 
         impl Entity for $ty {
-            fn id(&self) -> EntityId {
-                EntityId { inner: self.inner }
+            fn handle(&self) -> EntityHandle {
+                EntityHandle { inner: self.inner }
             }
         }
     };
@@ -356,8 +356,8 @@ macro_rules! impl_entity {
         impl<$($bounds)*> private::Sealed for $ty {}
 
         impl<$($bounds)*> Entity for $ty {
-            fn id(&self) -> EntityId {
-                EntityId { inner: self.inner }
+            fn handle(&self) -> EntityHandle {
+                EntityHandle { inner: self.inner }
             }
         }
     };
@@ -396,16 +396,16 @@ mod tests {
         let guard_condition = crate::GuardCondition::new(&participant).unwrap();
         let waitset = crate::WaitSet::<()>::new(&participant).unwrap();
 
-        assert_eq!(participant.id().inner, participant.inner);
-        assert_eq!(topic.id().inner, topic.inner);
-        assert_eq!(publisher.id().inner, publisher.inner);
-        assert_eq!(subscriber.id().inner, subscriber.inner);
-        assert_eq!(reader.id().inner, reader.inner);
-        assert_eq!(writer.id().inner, writer.inner);
-        assert_eq!(read_condition.id().inner, read_condition.inner);
-        assert_eq!(query_condition.id().inner, query_condition.inner);
-        assert_eq!(guard_condition.id().inner, guard_condition.inner);
-        assert_eq!(waitset.id().inner, waitset.inner);
+        assert_eq!(participant.handle().inner, participant.inner);
+        assert_eq!(topic.handle().inner, topic.inner);
+        assert_eq!(publisher.handle().inner, publisher.inner);
+        assert_eq!(subscriber.handle().inner, subscriber.inner);
+        assert_eq!(reader.handle().inner, reader.inner);
+        assert_eq!(writer.handle().inner, writer.inner);
+        assert_eq!(read_condition.handle().inner, read_condition.inner);
+        assert_eq!(query_condition.handle().inner, query_condition.inner);
+        assert_eq!(guard_condition.handle().inner, guard_condition.inner);
+        assert_eq!(waitset.handle().inner, waitset.inner);
     }
 
     #[test]
