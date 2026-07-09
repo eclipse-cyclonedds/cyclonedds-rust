@@ -39,7 +39,7 @@ use crate::{Participant, Result};
 /// ```
 pub struct WaitSet<'domain, 'participant, 'attached, A> {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
-    attached: std::collections::HashMap<EntityId, &'attached dyn Entity>,
+    attached: std::collections::HashMap<EntityId, &'attached (dyn Entity + Send + Sync)>,
     phantom_blobs: std::marker::PhantomData<&'attached A>,
     phantom: std::marker::PhantomData<&'participant Participant<'domain>>,
 }
@@ -115,7 +115,11 @@ impl<'d, 'p, 'a, A> WaitSet<'d, 'p, 'a, A> {
     /// waitset.attach(&reader, None)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn attach(&mut self, entity: &'a dyn Entity, blob: Option<&'a A>) -> Result<()> {
+    pub fn attach(
+        &mut self,
+        entity: &'a (dyn Entity + Send + Sync),
+        blob: Option<&'a A>,
+    ) -> Result<()> {
         let id = entity.id();
         if !self.attached.contains_key(&id) {
             ffi::dds_waitset_attach(
@@ -160,7 +164,7 @@ impl<'d, 'p, 'a, A> WaitSet<'d, 'p, 'a, A> {
     /// waitset.detach(&reader)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn detach(&mut self, entity: &'a dyn Entity) -> Result<()> {
+    pub fn detach(&mut self, entity: &'a (dyn Entity + Send + Sync)) -> Result<()> {
         let entity = entity.id();
         self.detach_id(entity)
     }
@@ -309,7 +313,7 @@ impl<'d, 'p, 'a, A> WaitSet<'d, 'p, 'a, A> {
     /// assert!(waitset.is_attached(&reader));
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn is_attached(&self, entity: &'a dyn Entity) -> bool {
+    pub fn is_attached(&self, entity: &'a (dyn Entity + Send + Sync)) -> bool {
         self.attached.contains_key(&entity.id())
     }
 }
