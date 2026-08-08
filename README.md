@@ -297,7 +297,7 @@ struct Reading {
 let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings").build()?;
 let writer = Writer::new(&topic)?;
 
-// Borrow shared memory and fill the sample in place.
+// Build the sample in the shared memory itself, and publish it from there.
 let mut loan = writer.loan()?;
 loan.write(Reading {
     sensor_id: 1,
@@ -307,9 +307,22 @@ loan.write(Reading {
 writer.write_loaned(loan)?;
 ```
 
-For a large payload, prefer `loan.as_uninit_mut()` over `loan.write(..)`: the
-former writes the payload straight into shared memory, while the latter builds
-the sample first and then moves it in.
+Reading it back without a copy is the other half. `take_loaned`, `read_loaned` and
+`peek_loaned` hand out a
+[`LoanedSample`](https://docs.rs/eclipse-cyclonedds/latest/cyclonedds/struct.LoanedSample.html)
+that derefs to the payload where it lies and releases it on drop — for a sample
+that arrived over shared memory, that *is* the writer's memory:
+
+```rust
+for sample in reader.take_loaned()? {
+    // No copy: `sample` borrows the memory the writer filled in.
+    println!("sensor {} reads {}", sample.sensor_id, sample.value);
+}
+```
+
+They borrow the reader, so samples cannot outlive it. Drop them promptly: until
+they do, the writer's PSMX Instance cannot reuse the memory they point at, and a
+writer whose pool runs dry has to wait.
 
 Both ends must opt in — a reader only accepts a raw payload on a topic that
 agreed to the raw representation. Endpoints that did not opt in still interoperate
