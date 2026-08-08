@@ -1,0 +1,7 @@
+error: Unsupported shape `enum`. Expected struct with named fields or unnamed fields.
+ --> tests/compilation-failure/fixed_size_enum.rs:5:10
+  |
+5 | #[derive(FixedSize, Clone, Copy)]
+  |          ^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `FixedSize` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,5 @@
+error: `FixedSize` requires `#[repr(C)]`: a `repr(Rust)` type has no guaranteed layout, so its bytes mean nothing to another process
+ --> tests/compilation-failure/fixed_size_without_repr_c.rs:6:8
+  |
+6 | struct Data {
+  |        ^^^^
