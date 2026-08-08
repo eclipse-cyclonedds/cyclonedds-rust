@@ -1081,6 +1081,94 @@ where
     }
 }
 
+impl<'d, 'p, 't, T> Writer<'d, 'p, 't, T>
+where
+    T: crate::FixedSizeTopic,
+{
+    /// Borrows memory from this writer to build a sample in place.
+    ///
+    /// On a topic that opted into zero-copy with
+    /// [`TopicBuilder::with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy),
+    /// and on a domain with a shared-memory PSMX interface, the returned
+    /// [`Loan`] *is* the shared memory readers on this machine will look at, so
+    /// the sample reaches them without being copied or serialized. Otherwise
+    /// Cyclone DDS falls back to ordinary heap memory, which gives the same
+    /// programming model without the benefit.
+    ///
+    /// Publish the result with [`write_loaned`](Writer::write_loaned). Dropping
+    /// the [`Loan`] instead hands the memory back unused.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the writer cannot lend memory — if
+    /// it has already been deleted, if its topic did not opt into zero-copy with
+    /// [`with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy), or if the
+    /// PSMX implementation hands back memory that is not aligned for `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Reading {
+    /// #     #[dds(key)]
+    /// #     sensor_id: u32,
+    /// #     sequence: u32,
+    /// #     value: f64,
+    /// # }
+    /// let topic = TopicBuilder::<Reading>::new(&participant, "Readings")
+    ///     .with_zero_copy()
+    ///     .build()?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// let mut loan = writer.loan()?;
+    /// loan.write(Reading {
+    ///     sensor_id: 1,
+    ///     sequence: 7,
+    ///     value: 21.5,
+    /// });
+    /// writer.write_loaned(loan)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn loan(&self) -> Result<crate::Loan<'_, 'd, 'p, 't, T>> {
+        crate::Loan::new(self)
+    }
+
+    /// Publishes a sample built in memory this writer lent out.
+    ///
+    /// Cyclone DDS takes ownership of the loan, so it is not returned afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the write fails, in which case the
+    /// loan is released.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `loan` came from a different writer.
+    ///
+    /// # Examples
+    ///
+    /// See [`loan`](Writer::loan).
+    pub fn write_loaned(&self, loan: crate::Loan<'_, 'd, 'p, 't, T>) -> Result<()> {
+        assert!(
+            std::ptr::eq(loan.writer(), self),
+            "a loan may only be published through the writer it came from"
+        );
+
+        // Cyclone DDS identifies the loan by its address and takes it over, so
+        // the `Loan` must not also return it.
+        ffi::dds_write_loaned(self.inner, loan.into_raw())
+    }
+}
+
 impl<T> Drop for Writer<'_, '_, '_, T>
 where
     T: crate::Topicable,
