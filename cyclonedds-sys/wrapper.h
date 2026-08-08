@@ -2,6 +2,8 @@
 #define WRAPPER_H_
 
 #include <dds/dds.h>
+#include <dds/ddsc/dds_loaned_sample.h>
+#include <dds/ddsc/dds_psmx.h>
 #include <dds/ddsc/dds_public_impl.h>
 #include <dds/ddsc/dds_public_qosdefs.h>
 #include <dds/ddsi/ddsi_radmin.h>
@@ -31,6 +33,13 @@ static struct ddsi_serdata* ddsi_serdata_ref_bindgen_wrapper(
 /// Decrements the reference count of a `ddsi_serdata` object.
 static void ddsi_serdata_unref_bindgen_wrapper(struct ddsi_serdata* serdata) {
   ddsi_serdata_unref(serdata);
+}
+
+/// Decrements the reference count of a `dds_loaned_sample` object, releasing it
+/// through the owning PSMX interface once it reaches zero.
+static void dds_loaned_sample_unref_bindgen_wrapper(
+    dds_loaned_sample_t* loaned_sample) {
+  dds_loaned_sample_unref(loaned_sample);
 }
 
 /// The value that represents the default domain ID.
