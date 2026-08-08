@@ -22,32 +22,38 @@ use crate::{Publisher, Result, Topic};
 /// [`T::Key`](crate::Topicable::Key) is [`()`](primitive@unit)) have
 /// a single instance shared by all samples.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Writer<'domain, 'participant, 'topic, T>
+pub struct Writer<'domain, 'participant, 'topic, T, R = crate::representation::Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
-    /// Copied from the topic: decides whether a sample is handed to Cyclone DDS
-    /// as the binding's own representation or as a bare `T`.
-    pub(crate) representation: crate::internal::sertype::Representation,
-    phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T>>,
+    phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T, R>>,
 }
 
 /// Builder for [`Writer<T>`] (accessible via [`Writer::builder`]).
 #[derive(Debug)]
-pub struct WriterBuilder<'domain, 'participant, 'topic, 'qos, T>
-where
+pub struct WriterBuilder<
+    'domain,
+    'participant,
+    'topic,
+    'qos,
+    T,
+    R = crate::representation::Serialized,
+> where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     publisher: Option<&'participant Publisher<'domain, 'participant>>,
-    topic: &'topic Topic<'domain, 'participant, T>,
+    topic: &'topic Topic<'domain, 'participant, T, R>,
     qos: Option<&'qos crate::QoS>,
-    listener: Option<crate::WriterListener<T>>,
+    listener: Option<crate::WriterListener<T, R>>,
 }
 
-impl<'d, 'p, 't, 'q, T> WriterBuilder<'d, 'p, 't, 'q, T>
+impl<'d, 'p, 't, 'q, T, R> WriterBuilder<'d, 'p, 't, 'q, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`WriterBuilder`] for the given [`Topic`].
     ///
@@ -70,7 +76,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     #[must_use]
-    pub const fn new(topic: &'t Topic<'d, 'p, T>) -> Self {
+    pub const fn new(topic: &'t Topic<'d, 'p, T, R>) -> Self {
         Self {
             publisher: None,
             topic,
@@ -163,7 +169,7 @@ where
     #[must_use]
     pub fn with_listener<L>(mut self, listener: L) -> Self
     where
-        L: AsRef<crate::WriterListener<T>>,
+        L: AsRef<crate::WriterListener<T, R>>,
     {
         self.listener = Some(listener.as_ref().clone());
         self
@@ -196,7 +202,7 @@ where
     /// let writer = WriterBuilder::<Data>::new(&topic).with_qos(&qos).build()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn build(self) -> Result<Writer<'d, 'p, 't, T>> {
+    pub fn build(self) -> Result<Writer<'d, 'p, 't, T, R>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
         self.listener
@@ -213,16 +219,22 @@ where
                         self.qos.map(|qos| &qos.inner),
                         listener.as_ref(),
                     )?,
-                    representation: self.topic.representation,
                     phantom_topic: std::marker::PhantomData,
                 })
             })
     }
 }
 
-impl<'d, 'p, 't, T> Writer<'d, 'p, 't, T>
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<'d, 'p, 't, T, R> Writer<'d, 'p, 't, T, R>
 where
     T: crate::Topicable,
+    R: crate::internal::layout::Layout<T>,
+    R: crate::representation::Representation,
 {
     /// Creates a new `Writer` for the given [`Topic`](crate::Topic) with
     /// default [`QoS`](crate::QoS) and no
@@ -253,7 +265,7 @@ where
     /// let writer = Writer::new(&topic)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn new(topic: &'t Topic<'d, 'p, T>) -> Result<Self> {
+    pub fn new(topic: &'t Topic<'d, 'p, T, R>) -> Result<Self> {
         Self::builder(topic).build()
     }
 
@@ -287,7 +299,9 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     #[must_use]
-    pub const fn builder<'q>(topic: &'t Topic<'d, 'p, T>) -> WriterBuilder<'d, 'p, 't, 'q, T> {
+    pub const fn builder<'q>(
+        topic: &'t Topic<'d, 'p, T, R>,
+    ) -> WriterBuilder<'d, 'p, 't, 'q, T, R> {
         WriterBuilder::new(topic)
     }
 
@@ -319,7 +333,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write(&self, sample: &T) -> Result<()> {
-        ffi::dds_write(self.inner, self.representation, sample)
+        ffi::dds_write::<T, R>(self.inner, sample)
     }
 
     /// Writes a sample with an explicit source timestamp.
@@ -355,7 +369,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write_with_timestamp(&self, sample: &T, timestamp: crate::Time) -> Result<()> {
-        ffi::dds_write_with_timestamp(self.inner, self.representation, sample, timestamp.inner)
+        ffi::dds_write_with_timestamp::<T, R>(self.inner, sample, timestamp.inner)
     }
 
     /// Flushes batched samples to the network.
@@ -549,7 +563,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn register_instance(&self, key: &T::Key) -> Result<crate::entity::InstanceHandle> {
-        ffi::dds_register_instance::<T>(self.inner, self.representation, key)
+        ffi::dds_register_instance::<T, R>(self.inner, key)
             .map(|inner| crate::entity::InstanceHandle { inner })
     }
 
@@ -585,7 +599,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn unregister_instance(&self, key: &T::Key) -> Result<()> {
-        ffi::dds_unregister_instance::<T>(self.inner, self.representation, key)
+        ffi::dds_unregister_instance::<T, R>(self.inner, key)
     }
 
     /// Unregisters an instance identified by its
@@ -658,12 +672,7 @@ where
         key: &T::Key,
         timestamp: crate::Time,
     ) -> Result<()> {
-        ffi::dds_unregister_instance_with_timestamp::<T>(
-            self.inner,
-            self.representation,
-            key,
-            timestamp.inner,
-        )
+        ffi::dds_unregister_instance_with_timestamp::<T, R>(self.inner, key, timestamp.inner)
     }
 
     /// Unregisters an instance identified by its
@@ -740,7 +749,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn lookup_instance(&self, key: &T::Key) -> Option<crate::entity::InstanceHandle> {
-        ffi::dds_lookup_instance::<T>(self.inner, self.representation, key)
+        ffi::dds_lookup_instance::<T, R>(self.inner, key)
             .map(|inner| crate::entity::InstanceHandle { inner })
     }
 
@@ -775,7 +784,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write_dispose(&self, data: &T) -> Result<()> {
-        ffi::dds_write_dispose(self.inner, self.representation, data)
+        ffi::dds_write_dispose::<T, R>(self.inner, data)
     }
 
     /// Writes a sample and immediately disposes the instance with an explicit
@@ -809,12 +818,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write_dispose_with_timestamp(&self, data: &T, timestamp: crate::Time) -> Result<()> {
-        ffi::dds_write_dispose_with_timestamp(
-            self.inner,
-            self.representation,
-            data,
-            timestamp.inner,
-        )
+        ffi::dds_write_dispose_with_timestamp::<T, R>(self.inner, data, timestamp.inner)
     }
 
     /// Disposes the instance identified by `key`.
@@ -849,7 +853,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn dispose(&self, key: &T::Key) -> Result<()> {
-        ffi::dds_dispose::<T>(self.inner, self.representation, key)
+        ffi::dds_dispose::<T, R>(self.inner, key)
     }
 
     /// Disposes the instance identified by `key` with an explicit timestamp.
@@ -882,7 +886,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn dispose_with_timestamp(&self, key: &T::Key, timestamp: crate::Time) -> Result<()> {
-        ffi::dds_dispose_with_timestamp::<T>(self.inner, self.representation, key, timestamp.inner)
+        ffi::dds_dispose_with_timestamp::<T, R>(self.inner, key, timestamp.inner)
     }
 
     /// Disposes the instance identified by its
@@ -965,20 +969,6 @@ where
         )
     }
 
-    pub(crate) const fn from_existing(
-        inner: cyclonedds_sys::dds_entity_t,
-    ) -> std::mem::ManuallyDrop<Self> {
-        std::mem::ManuallyDrop::new(Self {
-            inner,
-            // Reconstructed from a bare handle, as happens when a listener hands
-            // back the writer it fired for. Only used to call operations that do
-            // not pass a sample across the boundary, so the representation is
-            // never consulted; `Internal` is the safe default either way.
-            representation: crate::internal::sertype::Representation::Internal,
-            phantom_topic: std::marker::PhantomData,
-        })
-    }
-
     /// Sets the [`WriterListener`](crate::WriterListener) on this writer,
     /// replacing any previously set listener.
     ///
@@ -1010,7 +1000,7 @@ where
     /// ```
     pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
     where
-        L: AsRef<crate::WriterListener<T>>,
+        L: AsRef<crate::WriterListener<T, R>>,
     {
         listener
             .as_ref()
@@ -1075,13 +1065,13 @@ where
     /// ```
     pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
     where
-        L: AsRef<crate::WriterListener<T>>,
+        L: AsRef<crate::WriterListener<T, R>>,
     {
         self.set_listener(listener).map(|()| self)
     }
 }
 
-impl<'d, 'p, 't, T> Writer<'d, 'p, 't, T>
+impl<'d, 'p, 't, T> Writer<'d, 'p, 't, T, crate::representation::ZeroCopy>
 where
     T: crate::FixedSizeTopic,
 {
@@ -1101,9 +1091,8 @@ where
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) if the writer cannot lend memory — if
-    /// it has already been deleted, if its topic did not opt into zero-copy with
-    /// [`with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy), or if the
-    /// PSMX implementation hands back memory that is not aligned for `T`.
+    /// it has already been deleted, or if the PSMX implementation hands back
+    /// memory that is not aligned for `T`.
     ///
     /// # Examples
     ///
@@ -1135,6 +1124,37 @@ where
     ///     value: 21.5,
     /// });
     /// writer.write_loaned(loan)?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    ///
+    /// Without the opt-in there is nothing to lend, and saying so is the type's
+    /// job: `T: FixedSizeTopic` means the type *could* be shared as raw memory,
+    /// not that this topic asked to be. On a topic that did not, the sertype is
+    /// not memcpy-safe, so Cyclone DDS would answer with heap memory laid out as
+    /// this binding's own sample representation — and writing a bare `Reading`
+    /// over that would be undefined behaviour. `loan` exists only on a
+    /// `Writer<T, ZeroCopy>`, so the mistake does not compile:
+    ///
+    /// ```compile_fail
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Reading {
+    /// #     #[dds(key)]
+    /// #     sensor_id: u32,
+    /// #     sequence: u32,
+    /// #     value: f64,
+    /// # }
+    /// // No `with_zero_copy`, so this is a `Topic<Reading, Serialized>`.
+    /// let topic = Topic::<Reading>::new(&participant, "Readings")?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// let loan = writer.loan()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn loan(&self) -> Result<crate::Loan<'_, 'd, 'p, 't, T>> {
@@ -1169,9 +1189,32 @@ where
     }
 }
 
-impl<T> Drop for Writer<'_, '_, '_, T>
+impl<T, R> Writer<'_, '_, '_, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
+{
+    /// Wrap a writer entity this binding did not create, as a listener callback
+    /// has to when Cyclone DDS hands it the writer that fired.
+    ///
+    /// Deliberately outside the [`Layout`][crate::internal::layout::Layout]-bounded
+    /// operations: the representation is whatever the listener was declared with,
+    /// and a listener that is generic over it must still be able to build the
+    /// borrowed writer it passes on.
+    pub(crate) const fn from_existing(
+        inner: cyclonedds_sys::dds_entity_t,
+    ) -> std::mem::ManuallyDrop<Self> {
+        std::mem::ManuallyDrop::new(Self {
+            inner,
+            phantom_topic: std::marker::PhantomData,
+        })
+    }
+}
+
+impl<T, R> Drop for Writer<'_, '_, '_, T, R>
+where
+    T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn drop(&mut self) {
         let result = ffi::dds_delete(self.inner);

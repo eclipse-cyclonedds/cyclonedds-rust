@@ -21,6 +21,7 @@ pub use listener::{
 
 use crate::Result;
 use crate::error::IntoError;
+use crate::internal::layout::Layout;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum InternalSample<'a, T>
@@ -645,40 +646,10 @@ where
     RawOwned(T),
 }
 
-impl<'a, T> SampleArgument<'a, T>
+impl<T> SampleArgument<'_, T>
 where
     T: crate::Topicable,
 {
-    /// Package a whole sample.
-    pub(crate) const fn sample(
-        representation: crate::internal::sertype::Representation,
-        sample: &'a T,
-    ) -> Self {
-        match representation {
-            crate::internal::sertype::Representation::Internal => {
-                Self::Internal(InternalSample::SampleRef(sample))
-            }
-            crate::internal::sertype::Representation::Raw => Self::RawBorrowed(sample),
-        }
-    }
-
-    /// Package a key.
-    ///
-    /// In the raw representation there is no separate key type: a key is a whole
-    /// sample whose key fields carry the value, which is the convention Cyclone
-    /// DDS and the C bindings use. One therefore has to be materialized.
-    pub(crate) fn key(
-        representation: crate::internal::sertype::Representation,
-        key: &'a T::Key,
-    ) -> Self {
-        match representation {
-            crate::internal::sertype::Representation::Internal => {
-                Self::Internal(InternalSample::KeyRef(key))
-            }
-            crate::internal::sertype::Representation::Raw => Self::RawOwned(T::from_key(key)),
-        }
-    }
-
     /// The pointer to hand to Cyclone DDS.
     pub(crate) const fn as_ptr(&self) -> *const std::ffi::c_void {
         match self {
@@ -689,29 +660,26 @@ where
     }
 }
 
-pub fn dds_write<T>(
-    writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
-    sample: &T,
-) -> Result<()>
+pub fn dds_write<T, R>(writer: cyclonedds_sys::dds_entity_t, sample: &T) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let sample = SampleArgument::sample(representation, sample);
+    let sample = R::sample_argument(sample);
     unsafe { cyclonedds_sys::dds_write(writer, sample.as_ptr()) }.into_error()?;
     Ok(())
 }
 
-pub fn dds_write_with_timestamp<T>(
+pub fn dds_write_with_timestamp<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     sample: &T,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let sample = SampleArgument::sample(representation, sample);
+    let sample = R::sample_argument(sample);
     let sample = sample.as_ptr();
     unsafe { cyclonedds_sys::dds_write_ts(writer, sample, timestamp) }.into_error()?;
     Ok(())
@@ -776,15 +744,15 @@ pub fn dds_write_flush(writer: cyclonedds_sys::dds_entity_t) -> Result<()> {
     Ok(())
 }
 
-pub fn dds_register_instance<T>(
+pub fn dds_register_instance<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     key: &T::Key,
 ) -> Result<cyclonedds_sys::dds_instance_handle_t>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let key = SampleArgument::<T>::key(representation, key);
+    let key = R::key_argument(key);
     let key = key.as_ptr();
     let mut instance_handle = 0;
     unsafe { cyclonedds_sys::dds_register_instance(writer, &raw mut instance_handle, key) }
@@ -792,30 +760,30 @@ where
     Ok(instance_handle)
 }
 
-pub fn dds_unregister_instance<T>(
+pub fn dds_unregister_instance<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     key: &T::Key,
 ) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let key = SampleArgument::<T>::key(representation, key);
+    let key = R::key_argument(key);
     let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_unregister_instance(writer, key) }.into_error()?;
     Ok(())
 }
 
-pub fn dds_unregister_instance_with_timestamp<T>(
+pub fn dds_unregister_instance_with_timestamp<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     key: &T::Key,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let key = SampleArgument::<T>::key(representation, key);
+    let key = R::key_argument(key);
     let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_unregister_instance_ts(writer, key, timestamp) }.into_error()?;
     Ok(())
@@ -839,15 +807,15 @@ pub fn dds_unregister_instance_by_handle_with_timestamp(
     Ok(())
 }
 
-pub fn dds_lookup_instance<T>(
+pub fn dds_lookup_instance<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     key: &T::Key,
 ) -> Option<cyclonedds_sys::dds_instance_handle_t>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let key = SampleArgument::<T>::key(representation, key);
+    let key = R::key_argument(key);
     let key = key.as_ptr();
     let instance_handle = unsafe { cyclonedds_sys::dds_lookup_instance(writer, key) };
     if instance_handle == u64::from(cyclonedds_sys::DDS_HANDLE_NIL) {
@@ -857,59 +825,53 @@ where
     }
 }
 
-pub fn dds_write_dispose<T>(
-    writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
-    data: &T,
-) -> Result<()>
+pub fn dds_write_dispose<T, R>(writer: cyclonedds_sys::dds_entity_t, data: &T) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let sample = SampleArgument::sample(representation, data);
+    let sample = R::sample_argument(data);
     let sample = sample.as_ptr();
     unsafe { cyclonedds_sys::dds_writedispose(writer, sample) }.into_error()?;
     Ok(())
 }
 
-pub fn dds_write_dispose_with_timestamp<T>(
+pub fn dds_write_dispose_with_timestamp<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     data: &T,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let sample = SampleArgument::sample(representation, data);
+    let sample = R::sample_argument(data);
     let sample = sample.as_ptr();
     unsafe { cyclonedds_sys::dds_writedispose_ts(writer, sample, timestamp) }.into_error()?;
     Ok(())
 }
 
-pub fn dds_dispose<T>(
-    writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
-    key: &T::Key,
-) -> Result<()>
+pub fn dds_dispose<T, R>(writer: cyclonedds_sys::dds_entity_t, key: &T::Key) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let key = SampleArgument::<T>::key(representation, key);
+    let key = R::key_argument(key);
     let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_dispose(writer, key) }.into_error()?;
     Ok(())
 }
 
-pub fn dds_dispose_with_timestamp<T>(
+pub fn dds_dispose_with_timestamp<T, R>(
     writer: cyclonedds_sys::dds_entity_t,
-    representation: crate::internal::sertype::Representation,
     key: &T::Key,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let key = SampleArgument::<T>::key(representation, key);
+    let key = R::key_argument(key);
     let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_dispose_ts(writer, key, timestamp) }.into_error()?;
     Ok(())
@@ -966,7 +928,7 @@ pub fn dds_get_matched_subscriptions(
 pub(crate) unsafe extern "C" fn dds_read_with_collector_callback<T>(
     arg: *mut std::ffi::c_void,
     info: *const cyclonedds_sys::dds_sample_info_t,
-    sertype: *const cyclonedds_sys::ddsi_sertype,
+    _sertype: *const cyclonedds_sys::ddsi_sertype,
     serdata: *mut cyclonedds_sys::ddsi_serdata,
 ) -> cyclonedds_sys::dds_return_t
 where
@@ -975,7 +937,6 @@ where
     let buffer = unsafe { &mut *(arg.cast::<Vec<crate::sample::SampleOrKey<T>>>()) };
 
     let info = unsafe { &*info };
-    let _sertype = unsafe { &mut *(sertype as *mut crate::internal::sertype::Sertype<T>) };
     let serdata = unsafe { &mut *(serdata.cast::<crate::internal::serdata::Serdata<T>>()) };
 
     let valid_data = info.valid_data;

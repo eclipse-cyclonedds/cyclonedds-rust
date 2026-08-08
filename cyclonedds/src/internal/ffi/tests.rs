@@ -1,5 +1,6 @@
 use super::*;
 use crate::Topicable;
+use crate::representation::{Serialized, ZeroCopy};
 use crate::sample::SampleOrKeyInner;
 
 unsafe extern "C" fn sertype_free_mock(_: *mut cyclonedds_sys::ddsi_sertype) {}
@@ -55,9 +56,9 @@ fn test_ddsi_sertype_new_ref_unref_fini() {
         c"data",
         &cyclonedds_sys::ddsi_sertype_ops {
             free: Some(sertype_free_mock),
-            ..crate::internal::sertype::Sertype::<crate::tests::topic::Data>::SERTYPE_OPS
+            ..crate::internal::sertype::Sertype::<crate::tests::topic::Data, Serialized>::SERTYPE_OPS
         },
-        &crate::internal::sertype::Sertype::<crate::tests::topic::Data>::SERDATA_OPS,
+        &crate::internal::sertype::Sertype::<crate::tests::topic::Data, Serialized>::SERDATA_OPS,
         false,
     );
     assert_eq!(sertype.flags_refc.v, 1);
@@ -76,9 +77,9 @@ fn test_ddsi_serdata_new_ref_unref() {
         c"data",
         &cyclonedds_sys::ddsi_sertype_ops {
             free: Some(sertype_free_mock),
-            ..crate::internal::sertype::Sertype::<crate::tests::topic::Data>::SERTYPE_OPS
+            ..crate::internal::sertype::Sertype::<crate::tests::topic::Data, Serialized>::SERTYPE_OPS
         },
-        &crate::internal::sertype::Sertype::<crate::tests::topic::Data>::SERDATA_OPS,
+        &crate::internal::sertype::Sertype::<crate::tests::topic::Data, Serialized>::SERDATA_OPS,
         false,
     );
 
@@ -111,12 +112,10 @@ fn test_dds_peek_read_take_on_invalid_entity() {
 fn test_dds_read_with_collector_callback_on_key() {
     let info = cyclonedds_sys::dds_sample_info_t::default();
     let topic_name = c"Data";
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            topic_name,
-            crate::tests::topic::Data::IS_KEYED,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(topic_name, crate::tests::topic::Data::IS_KEYED));
 
     let key = (10, 20);
     let sample = SampleOrKeyInner::<crate::tests::topic::Data>::new_key(key);
@@ -176,7 +175,7 @@ fn test_unimplemented_serdata_ops() {
     }
 
     let result = unsafe {
-        serdata_ops::from_loaned_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_loaned_sample::<crate::tests::topic::Data, Serialized>(
             std::ptr::null(),
             0,
             std::ptr::null(),
@@ -187,7 +186,10 @@ fn test_unimplemented_serdata_ops() {
     assert_eq!(result, std::ptr::null_mut(),);
 
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(std::ptr::null(), std::ptr::null_mut())
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
+            std::ptr::null(),
+            std::ptr::null_mut(),
+        )
     };
     assert_eq!(result, std::ptr::null_mut(),);
 }
@@ -250,7 +252,7 @@ fn test_serdata_ops_from_keyhash() {
 
     let type_name = std::ffi::CString::new(Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = Data::IS_KEYED;
-    let mut sertype = Box::new(crate::internal::sertype::Sertype::<Data>::new(
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<Data, Serialized>::new(
         &type_name,
         topic_has_key,
     ));
@@ -264,10 +266,10 @@ fn test_serdata_ops_from_keyhash() {
     };
     *MOCKED_MAX_SERIALIZED_CDR_SIZE.lock().unwrap() = crate::cdr_bounds::CdrSize::Bounded(15);
 
-    let result = serdata_ops::from_keyhash_with_mode::<Data>(&sertype, &keyhash, true);
+    let result = serdata_ops::from_keyhash_with_mode::<Data, Serialized>(&sertype, &keyhash, true);
     assert_eq!(result, std::ptr::null_mut());
 
-    let result = serdata_ops::from_keyhash_with_mode::<Data>(&sertype, &keyhash, false);
+    let result = serdata_ops::from_keyhash_with_mode::<Data, Serialized>(&sertype, &keyhash, false);
     assert_ne!(result, std::ptr::null_mut());
 
     let mut serdata =
@@ -279,8 +281,9 @@ fn test_serdata_ops_from_keyhash() {
     assert_eq!(serdata.sample(), &sample);
     assert_eq!(serdata.sample(), &Data::from_key(&key));
 
-    let result =
-        unsafe { serdata_ops::from_keyhash::<Data>(&raw const sertype.inner, &raw const keyhash) };
+    let result = unsafe {
+        serdata_ops::from_keyhash::<Data, Serialized>(&raw const sertype.inner, &raw const keyhash)
+    };
     assert_ne!(result, std::ptr::null_mut());
 
     let mut serdata =
@@ -296,8 +299,9 @@ fn test_serdata_ops_from_keyhash() {
         value: *serialization,
     };
     *MOCKED_MAX_SERIALIZED_CDR_SIZE.lock().unwrap() = crate::cdr_bounds::CdrSize::Unbounded;
-    let result =
-        unsafe { serdata_ops::from_keyhash::<Data>(&raw const sertype.inner, &raw const keyhash) };
+    let result = unsafe {
+        serdata_ops::from_keyhash::<Data, Serialized>(&raw const sertype.inner, &raw const keyhash)
+    };
     assert_eq!(result, std::ptr::null_mut());
 
     let bad_serialization = [0, 0, 0, 101, 0, 0, 0, 102, 0, 0, 0, u8::MAX, 97, 0, 0, 0];
@@ -305,8 +309,9 @@ fn test_serdata_ops_from_keyhash() {
         value: bad_serialization,
     };
     *MOCKED_MAX_SERIALIZED_CDR_SIZE.lock().unwrap() = crate::cdr_bounds::CdrSize::Bounded(15);
-    let result =
-        unsafe { serdata_ops::from_keyhash::<Data>(&raw const sertype.inner, &raw const keyhash) };
+    let result = unsafe {
+        serdata_ops::from_keyhash::<Data, Serialized>(&raw const sertype.inner, &raw const keyhash)
+    };
     assert_eq!(result, std::ptr::null_mut());
 
     let bad_serialization = [0, 0, 0, 101, 0, 0, 0, 102, 0, 0, 0, u8::MAX, 97, 0, 0, 0];
@@ -314,8 +319,9 @@ fn test_serdata_ops_from_keyhash() {
         value: bad_serialization,
     };
     *MOCKED_MAX_SERIALIZED_CDR_SIZE.lock().unwrap() = crate::cdr_bounds::CdrSize::Unbounded;
-    let result =
-        unsafe { serdata_ops::from_keyhash::<Data>(&raw const sertype.inner, &raw const keyhash) };
+    let result = unsafe {
+        serdata_ops::from_keyhash::<Data, Serialized>(&raw const sertype.inner, &raw const keyhash)
+    };
     assert_eq!(result, std::ptr::null_mut());
 
     crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
@@ -327,12 +333,10 @@ fn test_serdata_ops_untyped_to_sample() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let sample = crate::tests::topic::Data {
         x: 101,
@@ -345,7 +349,7 @@ fn test_serdata_ops_untyped_to_sample() {
     );
 
     let result = unsafe {
-        serdata_ops::untyped_to_sample::<crate::tests::topic::Data>(
+        serdata_ops::untyped_to_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             &raw const serdata.inner,
             std::ptr::null_mut(),
@@ -358,7 +362,7 @@ fn test_serdata_ops_untyped_to_sample() {
     let mut written_sample =
         crate::internal::ffi::InternalSample::<crate::tests::topic::Data>::None;
     let result = unsafe {
-        serdata_ops::untyped_to_sample::<crate::tests::topic::Data>(
+        serdata_ops::untyped_to_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             &raw const serdata.inner,
             (&raw mut written_sample).cast(),
@@ -380,7 +384,7 @@ fn test_serdata_ops_untyped_to_sample() {
         crate::sample::SampleOrKeyInner::new_key(key),
     );
     let result = unsafe {
-        serdata_ops::untyped_to_sample::<crate::tests::topic::Data>(
+        serdata_ops::untyped_to_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             &raw const serdata.inner,
             (&raw mut written_sample).cast(),
@@ -403,12 +407,10 @@ fn test_serdata_ops_to_sample() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let sample = crate::tests::topic::Data {
         x: 101,
@@ -421,7 +423,7 @@ fn test_serdata_ops_to_sample() {
     );
 
     let result = unsafe {
-        serdata_ops::to_sample::<crate::tests::topic::Data>(
+        serdata_ops::to_sample::<crate::tests::topic::Data, Serialized>(
             &raw const serdata.inner,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -433,7 +435,7 @@ fn test_serdata_ops_to_sample() {
     let mut written_sample =
         crate::internal::ffi::InternalSample::<crate::tests::topic::Data>::None;
     let result = unsafe {
-        serdata_ops::to_sample::<crate::tests::topic::Data>(
+        serdata_ops::to_sample::<crate::tests::topic::Data, Serialized>(
             &raw const serdata.inner,
             (&raw mut written_sample).cast(),
             std::ptr::null_mut(),
@@ -454,7 +456,7 @@ fn test_serdata_ops_to_sample() {
         crate::sample::SampleOrKeyInner::new_key(key),
     );
     let result = unsafe {
-        serdata_ops::to_sample::<crate::tests::topic::Data>(
+        serdata_ops::to_sample::<crate::tests::topic::Data, Serialized>(
             &raw const serdata.inner,
             (&raw mut written_sample).cast(),
             std::ptr::null_mut(),
@@ -476,12 +478,10 @@ fn test_serdata_ops_from_sample() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     // Test serdata kind and sample kind mismatch.
     let kind = crate::internal::serdata::Kind::Key;
@@ -489,7 +489,7 @@ fn test_serdata_ops_from_sample() {
         &crate::tests::topic::Data::default(),
     );
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -502,7 +502,7 @@ fn test_serdata_ops_from_sample() {
         crate::tests::topic::Data::default(),
     );
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -515,7 +515,7 @@ fn test_serdata_ops_from_sample() {
         &Default::default(),
     );
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -527,7 +527,7 @@ fn test_serdata_ops_from_sample() {
     let sample =
         crate::internal::ffi::InternalSample::<crate::tests::topic::Data>::Key(Default::default());
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -541,7 +541,7 @@ fn test_serdata_ops_from_sample() {
         &crate::tests::topic::Data::default(),
     );
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -560,7 +560,7 @@ fn test_serdata_ops_from_sample() {
         crate::tests::topic::Data::default(),
     );
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -579,7 +579,7 @@ fn test_serdata_ops_from_sample() {
         &Default::default(),
     );
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -596,7 +596,7 @@ fn test_serdata_ops_from_sample() {
     let sample =
         crate::internal::ffi::InternalSample::<crate::tests::topic::Data>::Key(Default::default());
     let serdata = unsafe {
-        serdata_ops::from_sample::<crate::tests::topic::Data>(
+        serdata_ops::from_sample::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw const sample).cast(),
@@ -618,16 +618,14 @@ fn test_serdata_ops_from_ser() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             std::ptr::null(),
@@ -641,7 +639,7 @@ fn test_serdata_ops_from_ser() {
         ..Default::default()
     };
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             cyclonedds_sys::ddsi_serdata_kind::MAX,
             &raw const fragment_chain,
@@ -656,7 +654,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -671,7 +669,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -686,7 +684,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -701,7 +699,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -719,7 +717,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -738,7 +736,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -759,7 +757,7 @@ fn test_serdata_ops_from_ser() {
     };
     let kind = crate::internal::serdata::Kind::Data;
     let serdata = unsafe {
-        serdata_ops::from_ser::<crate::tests::topic::Data>(
+        serdata_ops::from_ser::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             &raw const fragment_chain,
@@ -779,12 +777,10 @@ fn test_serdata_ops_from_ser_iov() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let kind = crate::internal::serdata::Kind::Data;
     let size = 0;
@@ -792,7 +788,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -807,7 +803,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             cyclonedds_sys::ddsi_serdata_kind::MAX,
             containers_len,
@@ -842,7 +838,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -891,7 +887,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -940,7 +936,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -989,7 +985,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -1030,7 +1026,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -1084,7 +1080,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             kind.into(),
             containers_len,
@@ -1134,7 +1130,7 @@ fn test_serdata_ops_from_ser_iov() {
     .collect();
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -1179,7 +1175,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             kind.into(),
             containers_len,
@@ -1221,7 +1217,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             containers_len,
@@ -1263,7 +1259,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             kind.into(),
             containers_len,
@@ -1305,7 +1301,7 @@ fn test_serdata_ops_from_ser_iov() {
     let containers_len = containers.len() as cyclonedds_sys::ddsrt_msg_iovlen_t;
 
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             kind.into(),
             containers_len,
@@ -1383,12 +1379,10 @@ fn test_to_ser_ref_fragments() {
     const FRAGMENT_SIZE: usize = 1344;
 
     let name = std::ffi::CString::new("FragmentValidation").unwrap();
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &name,
-            crate::tests::topic::Data::IS_KEYED,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&name, crate::tests::topic::Data::IS_KEYED));
 
     for message_size in [41 * 1024, 164 * 1024] {
         let sample = crate::tests::topic::Data {
@@ -1446,12 +1440,10 @@ fn test_sertype_ops_realloc_samples() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let mut pointers = [std::ptr::null_mut(); 10];
     let old_samples = std::ptr::null_mut();
@@ -1459,7 +1451,7 @@ fn test_sertype_ops_realloc_samples() {
     let new_count = pointers.len();
 
     unsafe {
-        sertype_ops::realloc_samples::<crate::tests::topic::Data>(
+        sertype_ops::realloc_samples::<crate::tests::topic::Data, Serialized>(
             pointers.as_mut_ptr(),
             &raw const sertype.inner,
             old_samples,
@@ -1479,7 +1471,7 @@ fn test_sertype_ops_realloc_samples() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1504,7 +1496,7 @@ fn test_sertype_ops_realloc_samples() {
     let new_count = pointers.len();
 
     unsafe {
-        sertype_ops::realloc_samples::<crate::tests::topic::Data>(
+        sertype_ops::realloc_samples::<crate::tests::topic::Data, Serialized>(
             pointers.as_mut_ptr(),
             &raw const sertype.inner,
             old_samples.as_mut_ptr().cast(),
@@ -1524,7 +1516,7 @@ fn test_sertype_ops_realloc_samples() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1549,7 +1541,7 @@ fn test_sertype_ops_realloc_samples() {
     let new_count = pointers.len();
 
     unsafe {
-        sertype_ops::realloc_samples::<crate::tests::topic::Data>(
+        sertype_ops::realloc_samples::<crate::tests::topic::Data, Serialized>(
             pointers.as_mut_ptr(),
             &raw const sertype.inner,
             old_samples.as_mut_ptr().cast(),
@@ -1579,7 +1571,7 @@ fn test_sertype_ops_realloc_samples() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1604,7 +1596,7 @@ fn test_sertype_ops_realloc_samples() {
     let new_count = pointers.len();
 
     unsafe {
-        sertype_ops::realloc_samples::<crate::tests::topic::Data>(
+        sertype_ops::realloc_samples::<crate::tests::topic::Data, Serialized>(
             pointers.as_mut_ptr(),
             &raw const sertype.inner,
             old_samples.as_mut_ptr().cast(),
@@ -1624,7 +1616,7 @@ fn test_sertype_ops_realloc_samples() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1644,7 +1636,7 @@ fn test_sertype_ops_realloc_samples() {
     let new_count = pointers.len();
 
     unsafe {
-        sertype_ops::realloc_samples::<crate::tests::topic::Data>(
+        sertype_ops::realloc_samples::<crate::tests::topic::Data, Serialized>(
             pointers.as_mut_ptr(),
             &raw mut sertype.inner,
             old_samples.as_mut_ptr().cast(),
@@ -1664,7 +1656,7 @@ fn test_sertype_ops_realloc_samples() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1681,12 +1673,10 @@ fn test_sertype_ops_free_samples_unknown_free_operation() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let mut pointers = [std::ptr::null_mut(); 10];
     let old_samples = std::ptr::null_mut();
@@ -1694,7 +1684,7 @@ fn test_sertype_ops_free_samples_unknown_free_operation() {
     let new_count = pointers.len();
 
     unsafe {
-        sertype_ops::realloc_samples::<crate::tests::topic::Data>(
+        sertype_ops::realloc_samples::<crate::tests::topic::Data, Serialized>(
             pointers.as_mut_ptr(),
             &raw const sertype.inner,
             old_samples,
@@ -1714,7 +1704,7 @@ fn test_sertype_ops_free_samples_unknown_free_operation() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1724,7 +1714,7 @@ fn test_sertype_ops_free_samples_unknown_free_operation() {
     }
 
     unsafe {
-        sertype_ops::free_samples::<crate::tests::topic::Data>(
+        sertype_ops::free_samples::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             pointers.len(),
@@ -1741,16 +1731,14 @@ fn test_sertype_ops_serialize_into() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let mut destination_buffer: Vec<u8> = Vec::new();
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             cyclonedds_sys::ddsi_serdata_kind::MAX,
             std::ptr::null(),
@@ -1765,7 +1753,7 @@ fn test_sertype_ops_serialize_into() {
         vec![0; crate::internal::ffi::serdata_ops::DDSI_RTPS_HEADER_SIZE];
     let kind = crate::internal::serdata::Kind::Data;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw mut sample).cast(),
@@ -1780,7 +1768,7 @@ fn test_sertype_ops_serialize_into() {
         vec![0; crate::internal::ffi::serdata_ops::DDSI_RTPS_HEADER_SIZE];
     let kind = crate::internal::serdata::Kind::Data;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw mut sample).cast(),
@@ -1797,7 +1785,7 @@ fn test_sertype_ops_serialize_into() {
         vec![0; crate::internal::ffi::serdata_ops::DDSI_RTPS_HEADER_SIZE];
     let kind = crate::internal::serdata::Kind::Data;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw mut sample).cast(),
@@ -1813,7 +1801,7 @@ fn test_sertype_ops_serialize_into() {
         vec![0; crate::internal::ffi::serdata_ops::DDSI_RTPS_HEADER_SIZE];
     let kind = crate::internal::serdata::Kind::Key;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw mut sample).cast(),
@@ -1827,7 +1815,7 @@ fn test_sertype_ops_serialize_into() {
         vec![0; crate::internal::ffi::serdata_ops::DDSI_RTPS_HEADER_SIZE];
     let kind = crate::internal::serdata::Kind::Key;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             std::ptr::null(),
@@ -1851,7 +1839,7 @@ fn test_sertype_ops_serialize_into() {
     let mut destination_buffer: Vec<u8> = vec![0; 13];
     let kind = crate::internal::serdata::Kind::Data;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw mut internal_sample).cast(),
@@ -1873,7 +1861,7 @@ fn test_sertype_ops_serialize_into() {
     let mut destination_buffer: Vec<u8> = vec![0; 8];
     let kind = crate::internal::serdata::Kind::Key;
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             kind.into(),
             (&raw mut internal_key).cast(),
@@ -1922,19 +1910,17 @@ fn test_from_ser_iov_with_msg_iovlen_t_out_of_bounds() {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
     let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-    let mut sertype = Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            topic_has_key,
-        ),
-    );
+    let mut sertype = Box::new(crate::internal::sertype::Sertype::<
+        crate::tests::topic::Data,
+        Serialized,
+    >::new(&type_name, topic_has_key));
 
     let kind = crate::internal::serdata::Kind::Data;
     let size = 0;
 
     let containers_len: i32 = -1;
     let serdata = unsafe {
-        serdata_ops::from_ser_iov::<crate::tests::topic::Data>(
+        serdata_ops::from_ser_iov::<crate::tests::topic::Data, Serialized>(
             &raw mut sertype.inner,
             kind.into(),
             containers_len,
@@ -2020,16 +2006,22 @@ impl PsmxLoanFixture {
 }
 
 /// Build a sertype for the shared test topic, along with its type name.
-fn test_sertype() -> Box<crate::internal::sertype::Sertype<crate::tests::topic::Data>> {
+///
+/// Boxed because the tests hand its address to the ops and then release the
+/// Cyclone DDS reference by hand, which means suppressing the `Drop` that would
+/// otherwise release it a second time.
+#[allow(
+    clippy::unnecessary_box_returns,
+    reason = "the tests leak the box deliberately, in place of running `Sertype`'s `Drop`"
+)]
+fn test_sertype() -> Box<crate::internal::sertype::Sertype<crate::tests::topic::Data, Serialized>> {
     let type_name =
         std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
 
-    Box::new(
-        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
-            &type_name,
-            crate::tests::topic::Data::IS_KEYED,
-        ),
-    )
+    Box::new(crate::internal::sertype::Sertype::new(
+        &type_name,
+        crate::tests::topic::Data::IS_KEYED,
+    ))
 }
 
 #[test]
@@ -2053,7 +2045,7 @@ fn test_serdata_ops_from_psmx_serialized_data() {
     fixture.metadata.statusinfo = 0;
 
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             fixture.as_ptr(),
         )
@@ -2098,7 +2090,7 @@ fn test_serdata_ops_from_psmx_serialized_key() {
     );
 
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             fixture.as_ptr(),
         )
@@ -2137,7 +2129,7 @@ fn test_serdata_ops_from_psmx_rejects_unusable_loans() {
     ] {
         let mut fixture = PsmxLoanFixture::new(&sample, state);
         let result = unsafe {
-            serdata_ops::from_psmx::<crate::tests::topic::Data>(
+            serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
                 &raw const sertype.inner,
                 fixture.as_ptr(),
             )
@@ -2155,7 +2147,7 @@ fn test_serdata_ops_from_psmx_rejects_unusable_loans() {
         cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_SERIALIZED_DATA,
     );
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             fixture.as_ptr(),
         )
@@ -2173,7 +2165,7 @@ fn test_serdata_ops_from_psmx_rejects_unusable_loans() {
     );
     fixture.loan.metadata = std::ptr::null_mut();
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             fixture.as_ptr(),
         )
@@ -2186,7 +2178,10 @@ fn test_serdata_ops_from_psmx_rejects_unusable_loans() {
 
     // Null arguments.
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(std::ptr::null(), std::ptr::null_mut())
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
+            std::ptr::null(),
+            std::ptr::null_mut(),
+        )
     };
     assert_eq!(result, std::ptr::null_mut());
 
@@ -2252,7 +2247,7 @@ fn test_sertype_ops_get_serialized_size() {
     let mut size = 0_usize;
     let mut encoding_identifier = 0_u16;
     let result = unsafe {
-        sertype_ops::get_serialized_size::<crate::tests::topic::Data>(
+        sertype_ops::get_serialized_size::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Data.into(),
             (&raw mut internal_sample).cast(),
@@ -2275,7 +2270,7 @@ fn test_sertype_ops_get_serialized_size() {
     // produce the same bytes.
     let mut destination_buffer: Vec<u8> = vec![0; size];
     let result = unsafe {
-        sertype_ops::serialize_into::<crate::tests::topic::Data>(
+        sertype_ops::serialize_into::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Data.into(),
             (&raw mut internal_sample).cast(),
@@ -2295,7 +2290,7 @@ fn test_sertype_ops_get_serialized_size() {
         crate::internal::ffi::InternalSample::<crate::tests::topic::Data>::KeyRef(&key);
     let mut size = 0_usize;
     let result = unsafe {
-        sertype_ops::get_serialized_size::<crate::tests::topic::Data>(
+        sertype_ops::get_serialized_size::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Key.into(),
             (&raw mut internal_key).cast(),
@@ -2332,7 +2327,7 @@ fn test_sertype_ops_get_serialized_size_rejects_bad_input() {
         (std::ptr::null_mut(), &raw mut size, std::ptr::null_mut()),
     ] {
         let result = unsafe {
-            sertype_ops::get_serialized_size::<crate::tests::topic::Data>(
+            sertype_ops::get_serialized_size::<crate::tests::topic::Data, Serialized>(
                 &raw const sertype.inner,
                 crate::internal::serdata::Kind::Data.into(),
                 sample,
@@ -2349,7 +2344,7 @@ fn test_sertype_ops_get_serialized_size_rejects_bad_input() {
     let mut internal_key =
         crate::internal::ffi::InternalSample::<crate::tests::topic::Data>::KeyRef(&key);
     let result = unsafe {
-        sertype_ops::get_serialized_size::<crate::tests::topic::Data>(
+        sertype_ops::get_serialized_size::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Data.into(),
             (&raw mut internal_key).cast(),
@@ -2401,13 +2396,19 @@ impl crate::Topicable for RawData {
 }
 
 /// Build a sertype for [`RawData`] in the raw representation.
-fn raw_sertype() -> Box<crate::internal::sertype::Sertype<RawData>> {
+///
+/// Boxed for the same reason as [`test_sertype`].
+#[allow(
+    clippy::unnecessary_box_returns,
+    reason = "the tests leak the box deliberately, in place of running `Sertype`'s `Drop`"
+)]
+fn raw_sertype() -> Box<crate::internal::sertype::Sertype<RawData, ZeroCopy>> {
     let type_name = std::ffi::CString::new(RawData::dds_type_name().as_ref()).unwrap();
 
-    // SAFETY: `RawData` implements `FixedSizeTopic`.
-    Box::new(unsafe {
-        crate::internal::sertype::Sertype::<RawData>::new_raw(&type_name, RawData::IS_KEYED)
-    })
+    Box::new(crate::internal::sertype::Sertype::new(
+        &type_name,
+        RawData::IS_KEYED,
+    ))
 }
 
 #[test]
@@ -2427,19 +2428,11 @@ fn test_sertype_raw_declares_memcpy_safe_properties() {
         std::mem::size_of::<RawData>()
     );
     assert_eq!(sertype.inner.has_key(), u32::from(RawData::IS_KEYED));
-    assert_eq!(
-        sertype.representation,
-        crate::internal::sertype::Representation::Raw
-    );
 
     // The ordinary sertype must be unchanged: no size, not memcpy-safe.
     let mut internal = test_sertype();
     assert_eq!(internal.inner.is_memcpy_safe(), 0);
     assert_eq!(internal.inner.sizeof_type, 0);
-    assert_eq!(
-        internal.representation,
-        crate::internal::sertype::Representation::Internal
-    );
 
     crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
     let _ = Box::into_raw(sertype);
@@ -2471,8 +2464,9 @@ fn test_serdata_ops_from_psmx_raw_data() {
         cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_DATA,
     );
 
-    let result =
-        unsafe { serdata_ops::from_psmx::<RawData>(&raw const sertype.inner, fixture.as_ptr()) };
+    let result = unsafe {
+        serdata_ops::from_psmx::<RawData, ZeroCopy>(&raw const sertype.inner, fixture.as_ptr())
+    };
     assert_ne!(result, std::ptr::null_mut(), "expected a serdata");
 
     let mut serdata =
@@ -2498,7 +2492,7 @@ fn test_serdata_ops_from_psmx_raw_rejected_for_an_ordinary_topic() {
     );
 
     let result = unsafe {
-        serdata_ops::from_psmx::<crate::tests::topic::Data>(
+        serdata_ops::from_psmx::<crate::tests::topic::Data, Serialized>(
             &raw const sertype.inner,
             fixture.as_ptr(),
         )
@@ -2511,18 +2505,18 @@ fn test_serdata_ops_from_psmx_raw_rejected_for_an_ordinary_topic() {
 
 #[test]
 fn test_sertype_ops_raw_sample_buffers_round_trip() {
-    let mut sertype = raw_sertype();
-
     // Cyclone DDS allocates application samples through these ops, notably for
     // the heap loans it falls back to when no PSMX interface is configured. The
     // raw representation follows the same contract as the C library's own
     // sertype: one contiguous block, with `pointers[i]` addressing the `i`th
     // sample in it.
     const COUNT: usize = 3;
+
+    let mut sertype = raw_sertype();
     let mut pointers = [std::ptr::null_mut::<std::ffi::c_void>(); COUNT];
 
     unsafe {
-        sertype_ops::realloc_samples::<RawData>(
+        sertype_ops::realloc_samples::<RawData, ZeroCopy>(
             pointers.as_mut_ptr(),
             &raw const sertype.inner,
             std::ptr::null_mut(),
@@ -2550,7 +2544,11 @@ fn test_sertype_ops_raw_sample_buffers_round_trip() {
             sequence: 2,
             payload: [9; 8],
         });
-        sertype_ops::zero_samples::<RawData>(&raw const sertype.inner, pointers[0], COUNT);
+        sertype_ops::zero_samples::<RawData, ZeroCopy>(
+            &raw const sertype.inner,
+            pointers[0],
+            COUNT,
+        );
     }
     assert_eq!(
         unsafe { *pointers[1].cast::<RawData>() },
@@ -2558,7 +2556,7 @@ fn test_sertype_ops_raw_sample_buffers_round_trip() {
     );
 
     unsafe {
-        sertype_ops::free_samples::<RawData>(
+        sertype_ops::free_samples::<RawData, ZeroCopy>(
             &raw const sertype.inner,
             pointers.as_mut_ptr(),
             COUNT,
@@ -2588,7 +2586,7 @@ fn test_sertype_ops_serialize_raw_representation() {
     let mut size = 0_usize;
     let mut encoding_identifier = 0_u16;
     let result = unsafe {
-        sertype_ops::get_serialized_size::<RawData>(
+        sertype_ops::get_serialized_size::<RawData, ZeroCopy>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Data.into(),
             (&raw const sample).cast(),
@@ -2601,7 +2599,7 @@ fn test_sertype_ops_serialize_raw_representation() {
 
     let mut buffer = vec![0_u8; size];
     let result = unsafe {
-        sertype_ops::serialize_into::<RawData>(
+        sertype_ops::serialize_into::<RawData, ZeroCopy>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Data.into(),
             (&raw const sample).cast(),
@@ -2619,7 +2617,7 @@ fn test_sertype_ops_serialize_raw_representation() {
 
     let mut size = 0_usize;
     let result = unsafe {
-        sertype_ops::get_serialized_size::<RawData>(
+        sertype_ops::get_serialized_size::<RawData, ZeroCopy>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Key.into(),
             (&raw const sample).cast(),
@@ -2645,7 +2643,7 @@ fn test_serdata_ops_from_sample_raw_representation() {
     let mut sertype = raw_sertype();
 
     let result = unsafe {
-        serdata_ops::from_sample::<RawData>(
+        serdata_ops::from_sample::<RawData, ZeroCopy>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Data.into(),
             (&raw const sample).cast(),
@@ -2660,7 +2658,7 @@ fn test_serdata_ops_from_sample_raw_representation() {
 
     // A key built from the same pointer takes only the key fields.
     let result = unsafe {
-        serdata_ops::from_sample::<RawData>(
+        serdata_ops::from_sample::<RawData, ZeroCopy>(
             &raw const sertype.inner,
             crate::internal::serdata::Kind::Key.into(),
             (&raw const sample).cast(),
@@ -2696,7 +2694,7 @@ fn test_serdata_ops_to_sample_raw_representation() {
     // a bare `RawData` rather than the binding's sample enum.
     let mut destination = RawData::default();
     let result = unsafe {
-        serdata_ops::to_sample::<RawData>(
+        serdata_ops::to_sample::<RawData, ZeroCopy>(
             &raw const serdata.inner,
             (&raw mut destination).cast(),
             std::ptr::null_mut(),

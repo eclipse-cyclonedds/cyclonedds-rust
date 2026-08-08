@@ -22,29 +22,38 @@ use crate::{Result, Subscriber, Topic};
 /// | [`read`](Reader::read) | Returns samples and marks them as read (but leaves them available for subsequent reads). | Samples remain in the reader cache.        | Marked as read.                |
 /// | [`take`](Reader::take) | Returns samples and removes them (making them unavailable for subsequent reads).         | Samples are removed from the reader cache. | Consumed and no longer cached. |
 #[derive(Debug, PartialEq, Eq)]
-pub struct Reader<'domain, 'participant, 'topic, T>
+pub struct Reader<'domain, 'participant, 'topic, T, R = crate::representation::Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
-    phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T>>,
+    phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T, R>>,
 }
 
 /// Builder for [`Reader<T>`] (accessible via [`Reader::builder`]).
 #[derive(Debug)]
-pub struct ReaderBuilder<'domain, 'participant, 'topic, 'qos, T>
-where
+pub struct ReaderBuilder<
+    'domain,
+    'participant,
+    'topic,
+    'qos,
+    T,
+    R = crate::representation::Serialized,
+> where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     subscriber: Option<&'participant Subscriber<'domain, 'participant>>,
-    topic: &'topic Topic<'domain, 'participant, T>,
+    topic: &'topic Topic<'domain, 'participant, T, R>,
     qos: Option<&'qos crate::QoS>,
-    listener: Option<crate::ReaderListener<T>>,
+    listener: Option<crate::ReaderListener<T, R>>,
 }
 
-impl<'d, 'p, 't, 'q, T> ReaderBuilder<'d, 'p, 't, 'q, T>
+impl<'d, 'p, 't, 'q, T, R> ReaderBuilder<'d, 'p, 't, 'q, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`ReaderBuilder`] for the given [`Topic`].
     ///
@@ -67,7 +76,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     #[must_use]
-    pub const fn new(topic: &'t Topic<'d, 'p, T>) -> Self {
+    pub const fn new(topic: &'t Topic<'d, 'p, T, R>) -> Self {
         Self {
             subscriber: None,
             topic,
@@ -160,7 +169,7 @@ where
     #[must_use]
     pub fn with_listener<L>(mut self, listener: L) -> Self
     where
-        L: AsRef<crate::ReaderListener<T>>,
+        L: AsRef<crate::ReaderListener<T, R>>,
     {
         self.listener = Some(listener.as_ref().clone());
         self
@@ -193,7 +202,7 @@ where
     /// let reader = ReaderBuilder::<Data>::new(&topic).with_qos(&qos).build()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn build(self) -> Result<Reader<'d, 'p, 't, T>> {
+    pub fn build(self) -> Result<Reader<'d, 'p, 't, T, R>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
         self.listener
@@ -216,9 +225,10 @@ where
     }
 }
 
-impl<'d, 'p, 't, T> Reader<'d, 'p, 't, T>
+impl<'d, 'p, 't, T, R> Reader<'d, 'p, 't, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new `Reader` for the given [`Topic`](crate::Topic) with
     /// default [`QoS`](crate::QoS) and no
@@ -246,7 +256,7 @@ where
     /// let reader = Reader::new(&topic)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn new(topic: &'t Topic<'d, 'p, T>) -> Result<Self> {
+    pub fn new(topic: &'t Topic<'d, 'p, T, R>) -> Result<Self> {
         Self::builder(topic).build()
     }
 
@@ -276,7 +286,9 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     #[must_use]
-    pub const fn builder<'q>(topic: &'t Topic<'d, 'p, T>) -> ReaderBuilder<'d, 'p, 't, 'q, T> {
+    pub const fn builder<'q>(
+        topic: &'t Topic<'d, 'p, T, R>,
+    ) -> ReaderBuilder<'d, 'p, 't, 'q, T, R> {
         ReaderBuilder::new(topic)
     }
 
@@ -564,7 +576,7 @@ where
     /// ```
     pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
     where
-        L: AsRef<crate::ReaderListener<T>>,
+        L: AsRef<crate::ReaderListener<T, R>>,
     {
         listener
             .as_ref()
@@ -629,15 +641,16 @@ where
     /// ```
     pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
     where
-        L: AsRef<crate::ReaderListener<T>>,
+        L: AsRef<crate::ReaderListener<T, R>>,
     {
         self.set_listener(listener).map(|()| self)
     }
 }
 
-impl<T> Drop for Reader<'_, '_, '_, T>
+impl<T, R> Drop for Reader<'_, '_, '_, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn drop(&mut self) {
         let result = ffi::dds_delete(self.inner);

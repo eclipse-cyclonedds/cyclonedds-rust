@@ -1,6 +1,8 @@
 use crate::internal::ffi;
+use crate::internal::layout::Layout;
 use crate::internal::sertype::Sertype;
 use crate::internal::traits::AsFfi;
+use crate::representation::{Serialized, ZeroCopy};
 use crate::{Participant, Result};
 
 /// A typed communication channel.
@@ -15,35 +17,40 @@ use crate::{Participant, Result};
 /// [`QoS`](crate::QoS) and [`listener`](crate::listener::TopicListener)
 /// configuration.
 #[derive(Debug)]
-pub struct Topic<'domain, 'participant, T>
+pub struct Topic<'domain, 'participant, T, R = Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
-    /// How samples of this topic are passed across the FFI boundary, which
-    /// [`Writer`][crate::Writer] needs in order to hand Cyclone DDS a pointer it
-    /// will interpret correctly.
-    pub(crate) representation: crate::internal::sertype::Representation,
-    phantom_type: std::marker::PhantomData<T>,
+    phantom_type: std::marker::PhantomData<(T, R)>,
     phantom_participant: std::marker::PhantomData<&'participant Participant<'domain>>,
 }
 
 /// Builder for [`Topic<T>`] (accessible via [`Topic::builder`]).
 #[derive(Debug)]
-pub struct TopicBuilder<'domain, 'participant, 'qos, 'name, T>
+pub struct TopicBuilder<'domain, 'participant, 'qos, 'name, T, R = Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     participant: &'participant Participant<'domain>,
     topic_name: &'name str,
     qos: Option<&'qos crate::QoS>,
     listener: Option<crate::TopicListener<T>>,
-    representation: crate::internal::sertype::Representation,
+    phantom_representation: std::marker::PhantomData<R>,
 }
 
-impl<'d, 'p, 'q, 'n, T> TopicBuilder<'d, 'p, 'q, 'n, T>
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<'d, 'p, 'q, 'n, T, R> TopicBuilder<'d, 'p, 'q, 'n, T, R>
 where
     T: crate::Topicable,
+    R: Layout<T>,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`TopicBuilder`] for the given [`Participant`].
     ///
@@ -71,7 +78,7 @@ where
             topic_name,
             qos: None,
             listener: None,
-            representation: crate::internal::sertype::Representation::Internal,
+            phantom_representation: std::marker::PhantomData,
         }
     }
 
@@ -163,28 +170,13 @@ where
     ///     .build()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    #[allow(
-        unsafe_code,
-        reason = "`Representation::Raw` is only reachable via `with_zero_copy`, which is bounded \
-                  on `FixedSizeTopic`"
-    )]
-    pub fn build(self) -> Result<Topic<'d, 'p, T>> {
+    pub fn build(self) -> Result<Topic<'d, 'p, T, R>> {
         let name = std::ffi::CString::new(self.topic_name)
             .map_err(|_err| crate::error::Error::BadParameter)?;
         let type_name = std::ffi::CString::new(T::dds_type_name().as_ref())
             .map_err(|_err| crate::error::Error::BadParameter)?;
 
-        let sertype = match self.representation {
-            crate::internal::sertype::Representation::Internal => {
-                Sertype::<T>::new(&type_name, T::IS_KEYED)
-            }
-            // SAFETY: `Representation::Raw` is only reachable through
-            // `TopicBuilder::with_zero_copy`, which requires `T: FixedSizeTopic`
-            // and so carries that trait's guarantees.
-            crate::internal::sertype::Representation::Raw => unsafe {
-                Sertype::<T>::new_raw(&type_name, T::IS_KEYED)
-            },
-        };
+        let sertype = Sertype::<T, R>::new(&type_name, T::IS_KEYED);
         let mut sertype = std::mem::ManuallyDrop::new(Box::new(sertype));
 
         self.listener
@@ -205,7 +197,6 @@ where
 
                 Ok(Topic {
                     inner,
-                    representation: self.representation,
                     phantom_type: std::marker::PhantomData,
                     phantom_participant: std::marker::PhantomData,
                 })
@@ -213,7 +204,7 @@ where
     }
 }
 
-impl<T> TopicBuilder<'_, '_, '_, '_, T>
+impl<'d, 'p, 'q, 'n, T> TopicBuilder<'d, 'p, 'q, 'n, T, Serialized>
 where
     T: crate::FixedSizeTopic,
 {
@@ -236,19 +227,37 @@ where
     /// Readers and writers still interoperate with peers that do not use
     /// zero-copy; those simply exchange CDR as before.
     ///
+    /// The topic this builds is a
+    /// [`Topic<T, ZeroCopy>`](crate::representation::ZeroCopy), and its endpoints
+    /// carry that through: it is what makes [`Writer::loan`](crate::Writer::loan)
+    /// and [`Reader::take_loaned`](crate::Reader::take_loaned) available, and they
+    /// exist on no other kind of endpoint.
+    ///
     /// # Examples
     ///
     /// See [`Writer::loan`](crate::Writer::loan).
     #[must_use]
-    pub const fn with_zero_copy(mut self) -> Self {
-        self.representation = crate::internal::sertype::Representation::Raw;
-        self
+    pub const fn with_zero_copy(self) -> TopicBuilder<'d, 'p, 'q, 'n, T, ZeroCopy> {
+        TopicBuilder {
+            participant: self.participant,
+            topic_name: self.topic_name,
+            qos: self.qos,
+            listener: self.listener,
+            phantom_representation: std::marker::PhantomData,
+        }
     }
 }
 
-impl<'d, 'p, T> Topic<'d, 'p, T>
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<'d, 'p, T, R> Topic<'d, 'p, T, R>
 where
     T: crate::Topicable,
+    R: Layout<T>,
+    R: crate::representation::Representation,
 {
     /// Creates a new `Topic` with the given name under `participant` using
     /// default [`QoS`](crate::QoS) and no
@@ -309,7 +318,7 @@ where
     pub const fn builder<'q, 'n>(
         participant: &'p Participant<'d>,
         topic_name: &'n str,
-    ) -> TopicBuilder<'d, 'p, 'q, 'n, T> {
+    ) -> TopicBuilder<'d, 'p, 'q, 'n, T, R> {
         TopicBuilder::new(participant, topic_name)
     }
 
@@ -318,9 +327,6 @@ where
     ) -> std::mem::ManuallyDrop<Self> {
         std::mem::ManuallyDrop::new(Self {
             inner,
-            // A topic looked up rather than built here is never a zero-copy one:
-            // `with_zero_copy` is the only way in.
-            representation: crate::internal::sertype::Representation::Internal,
             phantom_type: std::marker::PhantomData,
             phantom_participant: std::marker::PhantomData,
         })
@@ -430,9 +436,10 @@ where
     }
 }
 
-impl<T> Drop for Topic<'_, '_, T>
+impl<T, R> Drop for Topic<'_, '_, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn drop(&mut self) {
         let result = ffi::dds_delete(self.inner);

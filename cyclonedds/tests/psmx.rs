@@ -179,10 +179,11 @@ macro_rules! paired_endpoints {
 }
 
 /// Wait for exactly one sample and check it, draining the reader.
-fn expect_one_sample<T>(reader: &dds::Reader<'_, '_, '_, T>, expected: &T)
+fn expect_one_sample<T, R>(reader: &dds::Reader<'_, '_, '_, T, R>, expected: &T)
 where
     T: dds::Topicable + PartialEq,
     T::Key: cyclonedds::cdr_bounds::CdrBounds,
+    R: dds::representation::Representation,
 {
     let deadline = std::time::Instant::now() + TIMEOUT;
     while reader.peek().expect("failed to peek the reader").is_empty() {
@@ -243,7 +244,7 @@ struct Frame {
 fn zero_copy_topic<'d, 'p, T>(
     participant: &'p dds::Participant<'d>,
     topic_name: &str,
-) -> dds::Result<dds::Topic<'d, 'p, T>>
+) -> dds::Result<dds::Topic<'d, 'p, T, dds::ZeroCopy>>
 where
     T: dds::FixedSizeTopic,
 {
@@ -527,35 +528,25 @@ fn zero_copy_loan_falls_back_to_the_heap_without_psmx() -> dds::Result<()> {
     Ok(())
 }
 
-/// A loan is refused on a topic that did not opt into zero-copy.
+/// A loan can only be taken on a topic that opted into zero-copy.
 ///
-/// `T: FixedSizeTopic` only says the type *could* be shared as raw memory. On a
-/// topic that did not ask for it the sertype is not memcpy-safe, so Cyclone DDS
-/// answers a loan request with heap memory laid out as this binding's own sample
-/// representation — writing a bare `Reading` over that would be undefined
-/// behaviour, so the loan has to be refused rather than handed out.
+/// The refusal itself is a compile error rather than a runtime one — see the
+/// `compile_fail` example on [`Writer::loan`] — because `loan` exists only on a
+/// `Writer<T, ZeroCopy>`. What this checks is the other half: that the opted-in
+/// topic really does hand loans out, so the type-level gate is not simply
+/// rejecting everything.
 #[test]
-fn loan_is_refused_without_the_zero_copy_opt_in() -> dds::Result<()> {
+fn loans_are_available_on_a_zero_copy_topic() -> dds::Result<()> {
     let trace = Trace::new();
     let domain = dds::Domain::new_with_xml_config(
         common::domain::unique_id(),
-        &config(0x08, "no-opt-in", &trace),
+        &config(0x08, "opt-in", &trace),
     )?;
     let participant = dds::Participant::new(&domain)?;
 
-    // Deliberately `Topic::new` rather than the zero-copy builder.
-    let topic = dds::Topic::<Reading>::new(&participant, &common::topic::unique_name())?;
+    let topic = zero_copy_topic::<Reading>(&participant, &common::topic::unique_name())?;
     let writer = dds::Writer::new(&topic)?;
-    assert!(
-        writer.loan().is_err(),
-        "a loan must be refused on a topic that did not opt into zero-copy"
-    );
-
-    // The opted-in topic on the same type still works, so the guard is not
-    // rejecting everything.
-    let zero_copy = zero_copy_topic::<Reading>(&participant, &common::topic::unique_name())?;
-    let zero_copy_writer = dds::Writer::new(&zero_copy)?;
-    assert!(zero_copy_writer.loan().is_ok());
+    assert!(writer.loan().is_ok());
 
     Ok(())
 }

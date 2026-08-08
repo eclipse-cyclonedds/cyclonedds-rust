@@ -201,6 +201,15 @@ pub struct Listener {
     publisher: PublisherListener,
 }
 
+/// A [`ReaderListener`] callback: the reader that fired, and the status it fired
+/// with.
+type ReaderCallback<T, R, S> = fn(&crate::Reader<'_, '_, '_, T, R>, S);
+/// A [`ReaderListener`] callback with no status of its own.
+type ReaderNotification<T, R> = fn(&crate::Reader<'_, '_, '_, T, R>);
+/// A [`WriterListener`] callback: the writer that fired, and the status it fired
+/// with.
+type WriterCallback<T, R, S> = fn(&crate::Writer<'_, '_, '_, T, R>, S);
+
 /// Listener attached to a [`Topic<T>`](crate::Topic<T>).
 #[derive(Debug, Clone, Copy)]
 pub struct TopicListener<T>
@@ -228,17 +237,18 @@ pub struct SubscriberListener {
 
 /// Listener attached to a [`Reader<T>`](crate::Reader<T>).
 #[derive(Debug, Clone, Copy)]
-pub struct ReaderListener<T>
+pub struct ReaderListener<T, R = crate::representation::Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
-    sample_lost: Option<fn(&crate::Reader<'_, '_, '_, T>, SampleLost)>,
-    data_available: Option<fn(&crate::Reader<'_, '_, '_, T>)>,
-    sample_rejected: Option<fn(&crate::Reader<'_, '_, '_, T>, SampleRejected)>,
-    liveliness_changed: Option<fn(&crate::Reader<'_, '_, '_, T>, LivelinessChanged)>,
-    requested_deadline_missed: Option<fn(&crate::Reader<'_, '_, '_, T>, RequestedDeadlineMissed)>,
-    requested_incompatible_qos: Option<fn(&crate::Reader<'_, '_, '_, T>, RequestedIncompatibleQoS)>,
-    subscription_matched: Option<fn(&crate::Reader<'_, '_, '_, T>, SubscriptionMatched)>,
+    sample_lost: Option<ReaderCallback<T, R, SampleLost>>,
+    data_available: Option<ReaderNotification<T, R>>,
+    sample_rejected: Option<ReaderCallback<T, R, SampleRejected>>,
+    liveliness_changed: Option<ReaderCallback<T, R, LivelinessChanged>>,
+    requested_deadline_missed: Option<ReaderCallback<T, R, RequestedDeadlineMissed>>,
+    requested_incompatible_qos: Option<ReaderCallback<T, R, RequestedIncompatibleQoS>>,
+    subscription_matched: Option<ReaderCallback<T, R, SubscriptionMatched>>,
 }
 
 /// Listener attached to a [`Publisher`](crate::Publisher).
@@ -258,14 +268,15 @@ pub struct PublisherListener {
 
 /// Listener attached to a [`Writer<T>`](crate::Writer<T>).
 #[derive(Debug, Clone, Copy)]
-pub struct WriterListener<T>
+pub struct WriterListener<T, R = crate::representation::Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
-    liveliness_lost: Option<fn(&crate::Writer<'_, '_, '_, T>, LivelinessLost)>,
-    offered_deadline_missed: Option<fn(&crate::Writer<'_, '_, '_, T>, OfferedDeadlineMissed)>,
-    offered_incompatible_qos: Option<fn(&crate::Writer<'_, '_, '_, T>, OfferedIncompatibleQoS)>,
-    publication_matched: Option<fn(&crate::Writer<'_, '_, '_, T>, PublicationMatched)>,
+    liveliness_lost: Option<WriterCallback<T, R, LivelinessLost>>,
+    offered_deadline_missed: Option<WriterCallback<T, R, OfferedDeadlineMissed>>,
+    offered_incompatible_qos: Option<WriterCallback<T, R, OfferedIncompatibleQoS>>,
+    publication_matched: Option<WriterCallback<T, R, PublicationMatched>>,
 }
 
 impl<T> Default for TopicListener<T>
@@ -279,9 +290,10 @@ where
     }
 }
 
-impl<T> Default for ReaderListener<T>
+impl<T, R> Default for ReaderListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn default() -> Self {
         Self {
@@ -296,9 +308,10 @@ where
     }
 }
 
-impl<T> Default for WriterListener<T>
+impl<T, R> Default for WriterListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn default() -> Self {
         Self {
@@ -591,9 +604,10 @@ impl AsFfi for PublisherListener {
     }
 }
 
-impl<T> ReaderListener<T>
+impl<T, R> ReaderListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`ReaderListener<T>`] with no callbacks registered.
     ///
@@ -641,7 +655,7 @@ where
     #[must_use]
     pub fn with_sample_lost(
         mut self,
-        callback: fn(&crate::Reader<'_, '_, '_, T>, SampleLost),
+        callback: fn(&crate::Reader<'_, '_, '_, T, R>, SampleLost),
     ) -> Self {
         self.sample_lost = Some(callback);
         self
@@ -670,7 +684,7 @@ where
     /// });
     /// ```
     #[must_use]
-    pub fn with_data_available(mut self, callback: fn(&crate::Reader<'_, '_, '_, T>)) -> Self {
+    pub fn with_data_available(mut self, callback: fn(&crate::Reader<'_, '_, '_, T, R>)) -> Self {
         self.data_available = Some(callback);
         self
     }
@@ -701,7 +715,7 @@ where
     #[must_use]
     pub fn with_sample_rejected(
         mut self,
-        callback: fn(&crate::Reader<'_, '_, '_, T>, SampleRejected),
+        callback: fn(&crate::Reader<'_, '_, '_, T, R>, SampleRejected),
     ) -> Self {
         self.sample_rejected = Some(callback);
         self
@@ -735,7 +749,7 @@ where
     #[must_use]
     pub fn with_liveliness_changed(
         mut self,
-        callback: fn(&crate::Reader<'_, '_, '_, T>, LivelinessChanged),
+        callback: fn(&crate::Reader<'_, '_, '_, T, R>, LivelinessChanged),
     ) -> Self {
         self.liveliness_changed = Some(callback);
         self
@@ -772,7 +786,7 @@ where
     #[must_use]
     pub fn with_requested_deadline_missed(
         mut self,
-        callback: fn(&crate::Reader<'_, '_, '_, T>, RequestedDeadlineMissed),
+        callback: fn(&crate::Reader<'_, '_, '_, T, R>, RequestedDeadlineMissed),
     ) -> Self {
         self.requested_deadline_missed = Some(callback);
         self
@@ -808,7 +822,7 @@ where
     #[must_use]
     pub fn with_requested_incompatible_qos(
         mut self,
-        callback: fn(&crate::Reader<'_, '_, '_, T>, RequestedIncompatibleQoS),
+        callback: fn(&crate::Reader<'_, '_, '_, T, R>, RequestedIncompatibleQoS),
     ) -> Self {
         self.requested_incompatible_qos = Some(callback);
         self
@@ -843,7 +857,7 @@ where
     #[must_use]
     pub fn with_subscription_matched(
         mut self,
-        callback: fn(&crate::Reader<'_, '_, '_, T>, SubscriptionMatched),
+        callback: fn(&crate::Reader<'_, '_, '_, T, R>, SubscriptionMatched),
     ) -> Self {
         self.subscription_matched = Some(callback);
         self
@@ -875,14 +889,16 @@ where
     }
 }
 
-impl<T> AsFfi for ReaderListener<T>
+impl<T, R> AsFfi for ReaderListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     type Target<'a>
         = Result<ffi::Listener>
     where
-        T: 'a;
+        T: 'a,
+        R: 'a;
 
     #[inline]
     fn as_ffi(&self) -> Self::Target<'_> {
@@ -893,9 +909,10 @@ where
     }
 }
 
-impl<T> WriterListener<T>
+impl<T, R> WriterListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`WriterListener<T>`] with no callbacks registered.
     ///
@@ -948,7 +965,7 @@ where
     #[must_use]
     pub fn with_liveliness_lost(
         mut self,
-        callback: fn(&crate::Writer<'_, '_, '_, T>, LivelinessLost),
+        callback: fn(&crate::Writer<'_, '_, '_, T, R>, LivelinessLost),
     ) -> Self {
         self.liveliness_lost = Some(callback);
         self
@@ -988,7 +1005,7 @@ where
     #[must_use]
     pub fn with_offered_deadline_missed(
         mut self,
-        callback: fn(&crate::Writer<'_, '_, '_, T>, OfferedDeadlineMissed),
+        callback: fn(&crate::Writer<'_, '_, '_, T, R>, OfferedDeadlineMissed),
     ) -> Self {
         self.offered_deadline_missed = Some(callback);
         self
@@ -1024,7 +1041,7 @@ where
     #[must_use]
     pub fn with_offered_incompatible_qos(
         mut self,
-        callback: fn(&crate::Writer<'_, '_, '_, T>, OfferedIncompatibleQoS),
+        callback: fn(&crate::Writer<'_, '_, '_, T, R>, OfferedIncompatibleQoS),
     ) -> Self {
         self.offered_incompatible_qos = Some(callback);
         self
@@ -1057,7 +1074,7 @@ where
     #[must_use]
     pub fn with_publication_matched(
         mut self,
-        callback: fn(&crate::Writer<'_, '_, '_, T>, PublicationMatched),
+        callback: fn(&crate::Writer<'_, '_, '_, T, R>, PublicationMatched),
     ) -> Self
     where
         T: crate::Topicable,
@@ -1083,14 +1100,16 @@ where
     }
 }
 
-impl<T> AsFfi for WriterListener<T>
+impl<T, R> AsFfi for WriterListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     type Target<'a>
         = Result<ffi::Listener>
     where
-        T: 'a;
+        T: 'a,
+        R: 'a;
 
     #[inline]
     fn as_ffi(&self) -> Self::Target<'_> {
@@ -1101,19 +1120,21 @@ where
     }
 }
 
-impl<T> AsRef<ReaderListener<T>> for ReaderListener<T>
+impl<T, R> AsRef<ReaderListener<T, R>> for ReaderListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
-    fn as_ref(&self) -> &ReaderListener<T> {
+    fn as_ref(&self) -> &ReaderListener<T, R> {
         self
     }
 }
-impl<T> AsRef<WriterListener<T>> for WriterListener<T>
+impl<T, R> AsRef<WriterListener<T, R>> for WriterListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
-    fn as_ref(&self) -> &WriterListener<T> {
+    fn as_ref(&self) -> &WriterListener<T, R> {
         self
     }
 }

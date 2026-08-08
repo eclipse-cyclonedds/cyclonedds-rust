@@ -16,10 +16,6 @@ where
     pub(crate) inner: cyclonedds_sys::ddsi_serdata,
     pub(crate) serialized_sample: std::cell::OnceCell<Vec<u8>>,
     pub(crate) sample: std::sync::Arc<SampleOrKey<T>>,
-    /// How the owning topic represents samples across the FFI boundary, copied
-    /// from the [`Sertype`] so that ops given only a serdata do not have to chase
-    /// back through [`cyclonedds_sys::ddsi_serdata::type_`].
-    pub(crate) representation: crate::internal::sertype::Representation,
 }
 
 impl<T> Serdata<T>
@@ -28,7 +24,7 @@ where
 {
     /// Create a new [`Serdata`] of a specific kind associated with a
     /// corresponding [`Sertype`].
-    pub fn new(sertype: &Sertype<T>, sample: SampleOrKey<T>) -> Self {
+    pub fn new<R>(sertype: &Sertype<T, R>, sample: SampleOrKey<T>) -> Self {
         let kind = match sample {
             SampleOrKey::Sample { .. } => Kind::Data,
             SampleOrKey::Key { .. } => Kind::Key,
@@ -41,7 +37,6 @@ where
             inner,
             sample: std::sync::Arc::new(sample),
             serialized_sample: std::cell::OnceCell::new(),
-            representation: sertype.representation,
         }
     }
 
@@ -201,7 +196,10 @@ mod tests {
         let type_name =
             std::ffi::CString::new(crate::tests::topic::Data::dds_type_name().as_ref()).unwrap();
         let topic_has_key = crate::tests::topic::Data::IS_KEYED;
-        let mut sertype = Box::new(Sertype::new(&type_name, topic_has_key));
+        let mut sertype = Box::new(Sertype::<_, crate::representation::Serialized>::new(
+            &type_name,
+            topic_has_key,
+        ));
         let sample = crate::sample::SampleOrKeyInner::<crate::tests::topic::Data>::new_sample(
             crate::tests::topic::Data::default(),
         );

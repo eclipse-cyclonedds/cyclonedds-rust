@@ -1,6 +1,7 @@
 //! Borrowed sample memory, for publishing without a copy.
 
 use crate::internal::ffi;
+use crate::representation::ZeroCopy;
 use crate::{Result, Writer};
 
 /// Memory borrowed from a [`Writer`] to build a sample in place.
@@ -26,7 +27,7 @@ pub struct Loan<'writer, 'domain, 'participant, 'topic, T>
 where
     T: crate::FixedSizeTopic,
 {
-    writer: &'writer Writer<'domain, 'participant, 'topic, T>,
+    writer: &'writer Writer<'domain, 'participant, 'topic, T, ZeroCopy>,
     /// The loaned memory, sized and aligned for one `T`. Never null.
     sample: *mut T,
 }
@@ -36,17 +37,12 @@ where
     T: crate::FixedSizeTopic,
 {
     /// Borrow memory for one sample from `writer`.
-    pub(crate) fn new(writer: &'w Writer<'d, 'p, 't, T>) -> Result<Self> {
-        // `T: FixedSizeTopic` says the type *could* support zero-copy, not that
-        // this topic asked for it. Without the opt-in the sertype is not
-        // memcpy-safe, so Cyclone DDS answers a loan request with heap memory it
-        // allocated through this binding's own `realloc_samples` — that is, an
-        // `InternalSample<T>`. Writing a bare `T` over one would be undefined
-        // behaviour, so refuse instead.
-        if writer.representation != crate::internal::sertype::Representation::Raw {
-            return Err(crate::Error::PreconditionNotMet);
-        }
-
+    pub(crate) fn new(writer: &'w Writer<'d, 'p, 't, T, ZeroCopy>) -> Result<Self> {
+        // The writer's `ZeroCopy` representation is what makes this sound. Without
+        // it the sertype would not be memcpy-safe, so Cyclone DDS would answer the
+        // request with heap memory allocated through this binding's own
+        // `realloc_samples` — that is, an `InternalSample<T>` — and writing a bare
+        // `T` over one would be undefined behaviour.
         let sample = ffi::dds_request_loan(writer.inner)?;
 
         // Cyclone DDS sizes the loan from the type size registered with the
@@ -137,7 +133,7 @@ where
     }
 
     /// The writer this loan came from.
-    pub(crate) const fn writer(&self) -> &'w Writer<'d, 'p, 't, T> {
+    pub(crate) const fn writer(&self) -> &'w Writer<'d, 'p, 't, T, ZeroCopy> {
         self.writer
     }
 }
