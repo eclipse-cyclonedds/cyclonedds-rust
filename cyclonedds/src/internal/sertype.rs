@@ -7,7 +7,33 @@
 
 use crate::internal::ffi;
 
+/// How samples of a topic are represented when Cyclone DDS hands them across the
+/// FFI boundary as a bare `void *`.
+///
+/// This is the "application representation" in Cyclone DDS terms. Which one is in
+/// use is fixed when the [`Sertype`] is created and read back out of it by the
+/// serdata and sertype ops, since they are the ones that have to interpret the
+/// pointer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Representation {
+    /// An [`InternalSample<T>`][crate::internal::ffi::InternalSample], the
+    /// binding's own enum. Handles borrowed and owned samples and keys, but is
+    /// meaningless to any other process.
+    Internal,
+    /// A bare `T`, laid out exactly as a C compiler would lay out the equivalent
+    /// IDL type.
+    ///
+    /// Only used for [`FixedSizeTopic`][crate::FixedSizeTopic] types on a topic
+    /// that opted into zero-copy, and only then is it sound for Cyclone DDS to
+    /// `memcpy` samples into memory shared with other processes.
+    Raw,
+}
+
 /// The extension point for wrapping [`cyclonedds_sys::ddsi_sertype`].
+///
+/// The embedded [`cyclonedds_sys::ddsi_sertype`] must stay the first field:
+/// Cyclone DDS is handed a pointer to it and the ops cast that pointer back to a
+/// `Sertype<T>`.
 #[repr(C)]
 #[derive(Debug)]
 pub struct Sertype<T>
@@ -15,6 +41,13 @@ where
     T: crate::Topicable,
 {
     pub(crate) inner: cyclonedds_sys::ddsi_sertype,
+    /// How Cyclone DDS passes samples of this topic across the FFI boundary.
+    ///
+    /// Kept here rather than derived from `T` so that enabling zero-copy cannot
+    /// be done from safe code: it is set only through
+    /// [`Sertype::new_raw`], whose caller has to satisfy
+    /// [`FixedSizeTopic`][crate::FixedSizeTopic].
+    pub(crate) representation: Representation,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -77,7 +110,8 @@ where
             ..ffi::serdata_ops::zeroed_serdata_ops()
         };
 
-    /// Create a new [`Sertype<T>`].
+    /// Create a new [`Sertype<T>`] using the binding's own sample
+    /// representation.
     pub fn new(type_name: &std::ffi::CStr, topic_has_key: bool) -> Self {
         let inner = ffi::ddsi_sertype_new(
             type_name,
@@ -88,6 +122,38 @@ where
 
         Sertype {
             inner,
+            representation: Representation::Internal,
+            phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Create a new [`Sertype<T>`] whose samples are represented as a bare `T`,
+    /// telling Cyclone DDS it may move them around as raw memory.
+    ///
+    /// ## Safety
+    /// `T` must satisfy the [`FixedSizeTopic`][crate::FixedSizeTopic] contract.
+    /// Cyclone DDS will `memcpy` `size_of::<T>()` bytes of a sample into memory
+    /// that other processes read, and will present memory written by other
+    /// processes to be read as a `T`.
+    #[allow(
+        unsafe_code,
+        reason = "the memcpy-safe representation cannot be validated by the compiler"
+    )]
+    pub unsafe fn new_raw(type_name: &std::ffi::CStr, topic_has_key: bool) -> Self {
+        // SAFETY: guaranteed by the caller of this function.
+        let inner = unsafe {
+            ffi::ddsi_sertype_new_memcpy_safe(
+                type_name,
+                &Self::SERTYPE_OPS,
+                &Self::SERDATA_OPS,
+                topic_has_key,
+                std::mem::size_of::<T>(),
+            )
+        };
+
+        Sertype {
+            inner,
+            representation: Representation::Raw,
             phantom: std::marker::PhantomData,
         }
     }

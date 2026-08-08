@@ -27,6 +27,9 @@ where
     T: crate::Topicable,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
+    /// Copied from the topic: decides whether a sample is handed to Cyclone DDS
+    /// as the binding's own representation or as a bare `T`.
+    pub(crate) representation: crate::internal::sertype::Representation,
     phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T>>,
 }
 
@@ -210,6 +213,7 @@ where
                         self.qos.map(|qos| &qos.inner),
                         listener.as_ref(),
                     )?,
+                    representation: self.topic.representation,
                     phantom_topic: std::marker::PhantomData,
                 })
             })
@@ -315,7 +319,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write(&self, sample: &T) -> Result<()> {
-        ffi::dds_write(self.inner, sample)
+        ffi::dds_write(self.inner, self.representation, sample)
     }
 
     /// Writes a sample with an explicit source timestamp.
@@ -351,7 +355,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write_with_timestamp(&self, sample: &T, timestamp: crate::Time) -> Result<()> {
-        ffi::dds_write_with_timestamp(self.inner, sample, timestamp.inner)
+        ffi::dds_write_with_timestamp(self.inner, self.representation, sample, timestamp.inner)
     }
 
     /// Flushes batched samples to the network.
@@ -386,6 +390,48 @@ where
     /// ```
     pub fn flush(&self) -> Result<()> {
         ffi::dds_write_flush(self.inner)
+    }
+
+    /// Whether this writer can publish through a shared-memory PSMX Instance.
+    ///
+    /// Returns `true` when the writer resolved to at least one Pub/Sub Message
+    /// Exchange (PSMX) Instance that advertises shared memory. That requires a
+    /// `PubSubMessageExchange` element in the domain's XML configuration, a
+    /// plugin that reports the shared-memory feature, and a topic type and `QoS`
+    /// the plugin accepts.
+    ///
+    /// This reports only what is available to *this* writer. Whether a
+    /// particular sample actually travels over shared memory additionally
+    /// depends on a matched reader resolving to the same PSMX Instance with the
+    /// same locator.
+    ///
+    /// Note that samples published this way are still serialized; see the
+    /// [`PsmxInstances`](crate::qos::policy::PsmxInstances) policy for how to
+    /// select instances.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "MyTopic")?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// // False here, as the default configuration has no PSMX Instance.
+    /// assert!(!writer.is_shared_memory_available());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn is_shared_memory_available(&self) -> bool {
+        ffi::dds_is_shared_memory_available(self.inner)
     }
 
     /// Blocks until all written samples have been acknowledged by all matched
@@ -503,7 +549,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn register_instance(&self, key: &T::Key) -> Result<crate::entity::InstanceHandle> {
-        ffi::dds_register_instance::<T>(self.inner, key)
+        ffi::dds_register_instance::<T>(self.inner, self.representation, key)
             .map(|inner| crate::entity::InstanceHandle { inner })
     }
 
@@ -539,7 +585,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn unregister_instance(&self, key: &T::Key) -> Result<()> {
-        ffi::dds_unregister_instance::<T>(self.inner, key)
+        ffi::dds_unregister_instance::<T>(self.inner, self.representation, key)
     }
 
     /// Unregisters an instance identified by its
@@ -612,7 +658,12 @@ where
         key: &T::Key,
         timestamp: crate::Time,
     ) -> Result<()> {
-        ffi::dds_unregister_instance_with_timestamp::<T>(self.inner, key, timestamp.inner)
+        ffi::dds_unregister_instance_with_timestamp::<T>(
+            self.inner,
+            self.representation,
+            key,
+            timestamp.inner,
+        )
     }
 
     /// Unregisters an instance identified by its
@@ -689,7 +740,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn lookup_instance(&self, key: &T::Key) -> Option<crate::entity::InstanceHandle> {
-        ffi::dds_lookup_instance::<T>(self.inner, key)
+        ffi::dds_lookup_instance::<T>(self.inner, self.representation, key)
             .map(|inner| crate::entity::InstanceHandle { inner })
     }
 
@@ -724,7 +775,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write_dispose(&self, data: &T) -> Result<()> {
-        ffi::dds_write_dispose(self.inner, data)
+        ffi::dds_write_dispose(self.inner, self.representation, data)
     }
 
     /// Writes a sample and immediately disposes the instance with an explicit
@@ -758,7 +809,12 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn write_dispose_with_timestamp(&self, data: &T, timestamp: crate::Time) -> Result<()> {
-        ffi::dds_write_dispose_with_timestamp(self.inner, data, timestamp.inner)
+        ffi::dds_write_dispose_with_timestamp(
+            self.inner,
+            self.representation,
+            data,
+            timestamp.inner,
+        )
     }
 
     /// Disposes the instance identified by `key`.
@@ -793,7 +849,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn dispose(&self, key: &T::Key) -> Result<()> {
-        ffi::dds_dispose::<T>(self.inner, key)
+        ffi::dds_dispose::<T>(self.inner, self.representation, key)
     }
 
     /// Disposes the instance identified by `key` with an explicit timestamp.
@@ -826,7 +882,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     pub fn dispose_with_timestamp(&self, key: &T::Key, timestamp: crate::Time) -> Result<()> {
-        ffi::dds_dispose_with_timestamp::<T>(self.inner, key, timestamp.inner)
+        ffi::dds_dispose_with_timestamp::<T>(self.inner, self.representation, key, timestamp.inner)
     }
 
     /// Disposes the instance identified by its
@@ -914,6 +970,11 @@ where
     ) -> std::mem::ManuallyDrop<Self> {
         std::mem::ManuallyDrop::new(Self {
             inner,
+            // Reconstructed from a bare handle, as happens when a listener hands
+            // back the writer it fired for. Only used to call operations that do
+            // not pass a sample across the boundary, so the representation is
+            // never consulted; `Internal` is the safe default either way.
+            representation: crate::internal::sertype::Representation::Internal,
             phantom_topic: std::marker::PhantomData,
         })
     }

@@ -20,6 +20,10 @@ where
     T: crate::Topicable,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
+    /// How samples of this topic are passed across the FFI boundary, which
+    /// [`Writer`][crate::Writer] needs in order to hand Cyclone DDS a pointer it
+    /// will interpret correctly.
+    pub(crate) representation: crate::internal::sertype::Representation,
     phantom_type: std::marker::PhantomData<T>,
     phantom_participant: std::marker::PhantomData<&'participant Participant<'domain>>,
 }
@@ -34,6 +38,7 @@ where
     topic_name: &'name str,
     qos: Option<&'qos crate::QoS>,
     listener: Option<crate::TopicListener<T>>,
+    representation: crate::internal::sertype::Representation,
 }
 
 impl<'d, 'p, 'q, 'n, T> TopicBuilder<'d, 'p, 'q, 'n, T>
@@ -66,6 +71,7 @@ where
             topic_name,
             qos: None,
             listener: None,
+            representation: crate::internal::sertype::Representation::Internal,
         }
     }
 
@@ -157,14 +163,29 @@ where
     ///     .build()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
+    #[allow(
+        unsafe_code,
+        reason = "`Representation::Raw` is only reachable via `with_zero_copy`, which is bounded \
+                  on `FixedSizeTopic`"
+    )]
     pub fn build(self) -> Result<Topic<'d, 'p, T>> {
         let name = std::ffi::CString::new(self.topic_name)
             .map_err(|_err| crate::error::Error::BadParameter)?;
         let type_name = std::ffi::CString::new(T::dds_type_name().as_ref())
             .map_err(|_err| crate::error::Error::BadParameter)?;
 
-        let mut sertype =
-            std::mem::ManuallyDrop::new(Box::new(Sertype::<T>::new(&type_name, T::IS_KEYED)));
+        let sertype = match self.representation {
+            crate::internal::sertype::Representation::Internal => {
+                Sertype::<T>::new(&type_name, T::IS_KEYED)
+            }
+            // SAFETY: `Representation::Raw` is only reachable through
+            // `TopicBuilder::with_zero_copy`, which requires `T: FixedSizeTopic`
+            // and so carries that trait's guarantees.
+            crate::internal::sertype::Representation::Raw => unsafe {
+                Sertype::<T>::new_raw(&type_name, T::IS_KEYED)
+            },
+        };
+        let mut sertype = std::mem::ManuallyDrop::new(Box::new(sertype));
 
         self.listener
             .map(|listener| listener.as_ffi())
@@ -184,10 +205,44 @@ where
 
                 Ok(Topic {
                     inner,
+                    representation: self.representation,
                     phantom_type: std::marker::PhantomData,
                     phantom_participant: std::marker::PhantomData,
                 })
             })
+    }
+}
+
+impl<T> TopicBuilder<'_, '_, '_, '_, T>
+where
+    T: crate::FixedSizeTopic,
+{
+    /// Lets Cyclone DDS move samples of this topic as raw memory, which is what
+    /// makes zero-copy transfer over shared memory possible.
+    ///
+    /// Without this, samples of every topic are transferred as CDR: serialized by
+    /// the writer and deserialized by the reader, even when the route between
+    /// them is shared memory. With it, and with a shared-memory PSMX interface
+    /// configured on the domain, a sample written through
+    /// [`Writer::loan`](crate::Writer::loan) reaches readers on the same machine
+    /// without being copied or converted at all.
+    ///
+    /// Requires [`FixedSizeTopic`](crate::FixedSizeTopic), whose contract is what
+    /// makes handing the type's raw bytes to another process sound. This is an
+    /// explicit opt-in rather than automatic because Rust cannot tell, from a
+    /// `T: Topicable` bound alone, whether `T` also implements
+    /// `FixedSizeTopic`.
+    ///
+    /// Readers and writers still interoperate with peers that do not use
+    /// zero-copy; those simply exchange CDR as before.
+    ///
+    /// # Examples
+    ///
+    /// See [`Writer::loan`](crate::Writer::loan).
+    #[must_use]
+    pub const fn with_zero_copy(mut self) -> Self {
+        self.representation = crate::internal::sertype::Representation::Raw;
+        self
     }
 }
 
@@ -263,6 +318,9 @@ where
     ) -> std::mem::ManuallyDrop<Self> {
         std::mem::ManuallyDrop::new(Self {
             inner,
+            // A topic looked up rather than built here is never a zero-copy one:
+            // `with_zero_copy` is the only way in.
+            representation: crate::internal::sertype::Representation::Internal,
             phantom_type: std::marker::PhantomData,
             phantom_participant: std::marker::PhantomData,
         })

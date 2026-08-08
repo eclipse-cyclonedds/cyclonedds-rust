@@ -122,6 +122,74 @@ pub fn ddsi_sertype_new(
     sertype
 }
 
+/// Create a new sertype that Cyclone DDS may treat as memcpy-safe, so that
+/// samples can be moved through a PSMX interface as raw memory.
+///
+/// Mirrors what [`ddsi_sertype_new`] gets from `ddsi_sertype_init`, and adds the
+/// type size and the memcpy-safe property on top. `ddsi_sertype_init` is a thin
+/// wrapper over `ddsi_sertype_init_props` that always passes a size of zero and
+/// no properties beyond the key flag, so going direct is the only way to set
+/// these.
+///
+/// Note that `flags` is left empty: `ddsi_sertype_init_props` only accepts
+/// `DDSI_SERTYPE_FLAG_REQUEST_KEYHASH` there and derives `has_key` from the data
+/// type properties instead. `DDSI_SERTYPE_FLAG_FIXED_SIZE` is not passed because
+/// the C library discards it.
+///
+/// ## Safety
+/// `sizeof_type` must be the size of the type's raw representation, and that
+/// representation must genuinely be safe to `memcpy` between processes. See
+/// [`FixedSizeTopic`][crate::FixedSizeTopic].
+pub unsafe fn ddsi_sertype_new_memcpy_safe(
+    type_name: &std::ffi::CStr,
+    sertype_ops: &cyclonedds_sys::ddsi_sertype_ops,
+    serdata_ops: &cyclonedds_sys::ddsi_serdata_ops,
+    topic_has_key: bool,
+    sizeof_type: usize,
+) -> cyclonedds_sys::ddsi_sertype {
+    let mut sertype = cyclonedds_sys::ddsi_sertype::default();
+
+    #[allow(
+        clippy::cast_sign_loss,
+        reason = "the generated binding types the 1 << 63 flag as a negative i64"
+    )]
+    let mut data_type_props =
+        cyclonedds_sys::DDS_DATA_TYPE_IS_MEMCPY_SAFE as cyclonedds_sys::dds_data_type_properties_t;
+
+    if topic_has_key {
+        data_type_props |= cyclonedds_sys::dds_data_type_properties_t::from(
+            cyclonedds_sys::DDS_DATA_TYPE_CONTAINS_KEY,
+        );
+    }
+
+    unsafe {
+        cyclonedds_sys::ddsi_sertype_init_props(
+            &raw mut sertype,
+            type_name.as_ptr(),
+            sertype_ops,
+            serdata_ops,
+            sizeof_type,
+            data_type_props,
+            cyclonedds_sys::DDS_DATA_REPRESENTATION_RESTRICT_DEFAULT,
+            0,
+        );
+    };
+
+    sertype
+}
+
+/// Decrement the reference count of a loaned sample, releasing it through the
+/// owning PSMX interface once it reaches zero.
+///
+/// ## Safety
+/// `loan` must be a non-null pointer to a loaned sample on which this caller
+/// holds a reference.
+#[inline]
+pub unsafe fn dds_loaned_sample_unref(loan: *mut cyclonedds_sys::dds_loaned_sample) {
+    // SAFETY: guaranteed by the caller.
+    unsafe { cyclonedds_sys::dds_loaned_sample_unref(loan) };
+}
+
 /// Increment the reference count of a sertype. This is primarily used by the
 /// [`Sertype`][`crate::internal::sertype::Sertype`] wrapper.
 #[inline]
@@ -283,6 +351,37 @@ pub fn dds_qos_set_partition(
         .expect("too many partitions supplied (DDS limits the number of partitions to u32::MAX)");
     let mut ps: Vec<_> = partitions.iter().map(|str| str.as_ptr()).collect();
     unsafe { cyclonedds_sys::dds_qset_partition(qos, n, ps.as_mut_ptr()) }
+}
+
+/// Report whether a reader or writer resolved to at least one PSMX Instance that
+/// advertises shared memory.
+///
+/// Returns `false` for any other kind of entity, and for an invalid or deleted
+/// one.
+pub fn dds_is_shared_memory_available(entity: cyclonedds_sys::dds_entity_t) -> bool {
+    unsafe { cyclonedds_sys::dds_is_shared_memory_available(entity) }
+}
+
+/// Set the PSMX Instances an entity may use to off-load data transfer.
+///
+/// # Panics
+/// Panics if more than [`DDS_MAX_PSMX_INSTANCES`][cyclonedds_sys::DDS_MAX_PSMX_INSTANCES]
+/// instances are supplied. The C library silently discards the whole policy in
+/// that case, which would leave the entity on whichever PSMX Instances it would
+/// have defaulted to and make the mistake very hard to spot.
+pub fn dds_qos_set_psmx_instances(
+    qos: &mut cyclonedds_sys::dds_qos_t,
+    instances: &[std::ffi::CString],
+) {
+    let n = u32::try_from(instances.len()).unwrap_or(u32::MAX);
+    assert!(
+        n <= cyclonedds_sys::DDS_MAX_PSMX_INSTANCES,
+        "too many PSMX instances supplied: {n} (DDS limits the number of PSMX instances to {})",
+        cyclonedds_sys::DDS_MAX_PSMX_INSTANCES
+    );
+
+    let mut instances: Vec<_> = instances.iter().map(|str| str.as_ptr()).collect();
+    unsafe { cyclonedds_sys::dds_qset_psmx_instances(qos, n, instances.as_mut_ptr()) }
 }
 
 pub fn dds_qos_set_reliability(
@@ -523,27 +622,152 @@ pub fn dds_create_writer(
     .into_error()
 }
 
-pub fn dds_write<T>(writer: cyclonedds_sys::dds_entity_t, sample: &T) -> Result<()>
+/// A sample or key packaged in whichever representation its topic uses, ready to
+/// be handed to Cyclone DDS as a bare pointer.
+///
+/// Cyclone DDS interprets that pointer according to the sertype: as the binding's
+/// own [`InternalSample`], or — for a topic that opted into zero-copy — as a bare
+/// `T` whose bytes it may `memcpy` into shared memory. Getting this wrong would
+/// have Cyclone DDS read one type as the other, so the choice is made in one
+/// place.
+///
+/// Must outlive the FFI call it is passed to.
+pub(crate) enum SampleArgument<'a, T>
 where
     T: crate::Topicable,
 {
-    let sample = InternalSample::SampleRef(sample);
-    let sample = (&raw const sample).cast();
-    unsafe { cyclonedds_sys::dds_write(writer, sample) }.into_error()?;
+    /// The binding's own representation.
+    Internal(InternalSample<'a, T>),
+    /// A borrowed bare `T`.
+    RawBorrowed(&'a T),
+    /// An owned bare `T`, needed when a key has to be expanded into a full
+    /// sample.
+    RawOwned(T),
+}
+
+impl<'a, T> SampleArgument<'a, T>
+where
+    T: crate::Topicable,
+{
+    /// Package a whole sample.
+    pub(crate) const fn sample(
+        representation: crate::internal::sertype::Representation,
+        sample: &'a T,
+    ) -> Self {
+        match representation {
+            crate::internal::sertype::Representation::Internal => {
+                Self::Internal(InternalSample::SampleRef(sample))
+            }
+            crate::internal::sertype::Representation::Raw => Self::RawBorrowed(sample),
+        }
+    }
+
+    /// Package a key.
+    ///
+    /// In the raw representation there is no separate key type: a key is a whole
+    /// sample whose key fields carry the value, which is the convention Cyclone
+    /// DDS and the C bindings use. One therefore has to be materialized.
+    pub(crate) fn key(
+        representation: crate::internal::sertype::Representation,
+        key: &'a T::Key,
+    ) -> Self {
+        match representation {
+            crate::internal::sertype::Representation::Internal => {
+                Self::Internal(InternalSample::KeyRef(key))
+            }
+            crate::internal::sertype::Representation::Raw => Self::RawOwned(T::from_key(key)),
+        }
+    }
+
+    /// The pointer to hand to Cyclone DDS.
+    pub(crate) const fn as_ptr(&self) -> *const std::ffi::c_void {
+        match self {
+            Self::Internal(sample) => (&raw const *sample).cast(),
+            Self::RawBorrowed(sample) => std::ptr::from_ref::<T>(sample).cast(),
+            Self::RawOwned(sample) => (&raw const *sample).cast(),
+        }
+    }
+}
+
+pub fn dds_write<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
+    sample: &T,
+) -> Result<()>
+where
+    T: crate::Topicable,
+{
+    let sample = SampleArgument::sample(representation, sample);
+    unsafe { cyclonedds_sys::dds_write(writer, sample.as_ptr()) }.into_error()?;
     Ok(())
 }
 
 pub fn dds_write_with_timestamp<T>(
     writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
     sample: &T,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let sample = InternalSample::SampleRef(sample);
-    let sample = (&raw const sample).cast();
+    let sample = SampleArgument::sample(representation, sample);
+    let sample = sample.as_ptr();
     unsafe { cyclonedds_sys::dds_write_ts(writer, sample, timestamp) }.into_error()?;
+    Ok(())
+}
+
+/// Borrow memory for one sample from a writer.
+///
+/// When the writer has a PSMX interface and its topic is memcpy-safe, the memory
+/// comes from the PSMX implementation — shared memory, for a shared-memory
+/// plugin — so filling it in and publishing avoids a copy entirely. Otherwise
+/// Cyclone DDS falls back to a heap loan, which offers the same borrow-then-write
+/// programming model without the benefit.
+///
+/// The returned pointer is valid for `size_of::<T>()` bytes of the topic's raw
+/// representation. Ownership passes to Cyclone DDS on
+/// [`dds_write_loaned`]; otherwise it must go back through
+/// [`dds_return_loan`].
+pub fn dds_request_loan(writer: cyclonedds_sys::dds_entity_t) -> Result<*mut std::ffi::c_void> {
+    let mut sample = std::ptr::null_mut();
+    unsafe { cyclonedds_sys::dds_request_loan(writer, &raw mut sample) }.into_error()?;
+
+    if sample.is_null() {
+        // Should not happen: the C library reports failure through the return
+        // code. Refuse rather than hand back a null pointer.
+        return Err(crate::Error::NonSpecific);
+    }
+
+    Ok(sample)
+}
+
+/// Publish a sample the writer previously loaned out.
+///
+/// Cyclone DDS recognizes the loan by its address and takes ownership of it, so
+/// the caller must not return the loan afterwards.
+pub fn dds_write_loaned(
+    writer: cyclonedds_sys::dds_entity_t,
+    sample: *mut std::ffi::c_void,
+) -> Result<()> {
+    unsafe { cyclonedds_sys::dds_write(writer, sample) }.into_error()?;
+    Ok(())
+}
+
+/// Hand a loan back to the writer unused.
+pub fn dds_return_loan(
+    writer: cyclonedds_sys::dds_entity_t,
+    sample: *mut std::ffi::c_void,
+) -> Result<()> {
+    let mut buffer = [sample];
+    unsafe {
+        cyclonedds_sys::dds_return_loan(
+            writer,
+            buffer.as_mut_ptr(),
+            i32::try_from(buffer.len()).expect("a one element array always fits in an i32"),
+        )
+    }
+    .into_error()?;
     Ok(())
 }
 
@@ -554,39 +778,45 @@ pub fn dds_write_flush(writer: cyclonedds_sys::dds_entity_t) -> Result<()> {
 
 pub fn dds_register_instance<T>(
     writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
     key: &T::Key,
 ) -> Result<cyclonedds_sys::dds_instance_handle_t>
 where
     T: crate::Topicable,
 {
-    let key = InternalSample::<T>::KeyRef(key);
-    let key = (&raw const key).cast();
+    let key = SampleArgument::<T>::key(representation, key);
+    let key = key.as_ptr();
     let mut instance_handle = 0;
     unsafe { cyclonedds_sys::dds_register_instance(writer, &raw mut instance_handle, key) }
         .into_error()?;
     Ok(instance_handle)
 }
 
-pub fn dds_unregister_instance<T>(writer: cyclonedds_sys::dds_entity_t, key: &T::Key) -> Result<()>
+pub fn dds_unregister_instance<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
+    key: &T::Key,
+) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let key = InternalSample::<T>::KeyRef(key);
-    let key = (&raw const key).cast();
+    let key = SampleArgument::<T>::key(representation, key);
+    let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_unregister_instance(writer, key) }.into_error()?;
     Ok(())
 }
 
 pub fn dds_unregister_instance_with_timestamp<T>(
     writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
     key: &T::Key,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let key = InternalSample::<T>::KeyRef(key);
-    let key = (&raw const key).cast();
+    let key = SampleArgument::<T>::key(representation, key);
+    let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_unregister_instance_ts(writer, key, timestamp) }.into_error()?;
     Ok(())
 }
@@ -611,13 +841,14 @@ pub fn dds_unregister_instance_by_handle_with_timestamp(
 
 pub fn dds_lookup_instance<T>(
     writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
     key: &T::Key,
 ) -> Option<cyclonedds_sys::dds_instance_handle_t>
 where
     T: crate::Topicable,
 {
-    let key = InternalSample::<T>::KeyRef(key);
-    let key = (&raw const key).cast();
+    let key = SampleArgument::<T>::key(representation, key);
+    let key = key.as_ptr();
     let instance_handle = unsafe { cyclonedds_sys::dds_lookup_instance(writer, key) };
     if instance_handle == u64::from(cyclonedds_sys::DDS_HANDLE_NIL) {
         None
@@ -626,50 +857,60 @@ where
     }
 }
 
-pub fn dds_write_dispose<T>(writer: cyclonedds_sys::dds_entity_t, data: &T) -> Result<()>
+pub fn dds_write_dispose<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
+    data: &T,
+) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let sample = InternalSample::SampleRef(data);
-    let sample = (&raw const sample).cast();
+    let sample = SampleArgument::sample(representation, data);
+    let sample = sample.as_ptr();
     unsafe { cyclonedds_sys::dds_writedispose(writer, sample) }.into_error()?;
     Ok(())
 }
 
 pub fn dds_write_dispose_with_timestamp<T>(
     writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
     data: &T,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let sample = InternalSample::SampleRef(data);
-    let sample = (&raw const sample).cast();
+    let sample = SampleArgument::sample(representation, data);
+    let sample = sample.as_ptr();
     unsafe { cyclonedds_sys::dds_writedispose_ts(writer, sample, timestamp) }.into_error()?;
     Ok(())
 }
 
-pub fn dds_dispose<T>(writer: cyclonedds_sys::dds_entity_t, key: &T::Key) -> Result<()>
+pub fn dds_dispose<T>(
+    writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
+    key: &T::Key,
+) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let key = InternalSample::<T>::KeyRef(key);
-    let key = (&raw const key).cast();
+    let key = SampleArgument::<T>::key(representation, key);
+    let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_dispose(writer, key) }.into_error()?;
     Ok(())
 }
 
 pub fn dds_dispose_with_timestamp<T>(
     writer: cyclonedds_sys::dds_entity_t,
+    representation: crate::internal::sertype::Representation,
     key: &T::Key,
     timestamp: cyclonedds_sys::dds_time_t,
 ) -> Result<()>
 where
     T: crate::Topicable,
 {
-    let key = InternalSample::<T>::KeyRef(key);
-    let key = (&raw const key).cast();
+    let key = SampleArgument::<T>::key(representation, key);
+    let key = key.as_ptr();
     unsafe { cyclonedds_sys::dds_dispose_ts(writer, key, timestamp) }.into_error()?;
     Ok(())
 }

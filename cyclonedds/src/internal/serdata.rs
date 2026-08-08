@@ -16,6 +16,10 @@ where
     pub(crate) inner: cyclonedds_sys::ddsi_serdata,
     pub(crate) serialized_sample: std::cell::OnceCell<Vec<u8>>,
     pub(crate) sample: std::sync::Arc<SampleOrKey<T>>,
+    /// How the owning topic represents samples across the FFI boundary, copied
+    /// from the [`Sertype`] so that ops given only a serdata do not have to chase
+    /// back through [`cyclonedds_sys::ddsi_serdata::type_`].
+    pub(crate) representation: crate::internal::sertype::Representation,
 }
 
 impl<T> Serdata<T>
@@ -37,6 +41,7 @@ where
             inner,
             sample: std::sync::Arc::new(sample),
             serialized_sample: std::cell::OnceCell::new(),
+            representation: sertype.representation,
         }
     }
 

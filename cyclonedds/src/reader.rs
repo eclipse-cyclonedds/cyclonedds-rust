@@ -480,6 +480,48 @@ where
         ffi::dds_reader_wait_for_historical_data(self.inner, timeout.inner)
     }
 
+    /// Whether this reader can receive through a shared-memory PSMX Instance.
+    ///
+    /// Returns `true` when the reader resolved to at least one Pub/Sub Message
+    /// Exchange (PSMX) Instance that advertises shared memory. That requires a
+    /// `PubSubMessageExchange` element in the domain's XML configuration, a
+    /// plugin that reports the shared-memory feature, and a topic type and `QoS`
+    /// the plugin accepts.
+    ///
+    /// This reports only what is available to *this* reader. Whether a
+    /// particular sample actually arrives over shared memory additionally
+    /// depends on a matched writer resolving to the same PSMX Instance with the
+    /// same locator.
+    ///
+    /// Note that samples received this way are still deserialized; see the
+    /// [`PsmxInstances`](crate::qos::policy::PsmxInstances) policy for how to
+    /// select instances.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Reader, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::<Data>::new(&topic)?;
+    ///
+    /// // False here, as the default configuration has no PSMX Instance.
+    /// assert!(!reader.is_shared_memory_available());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn is_shared_memory_available(&self) -> bool {
+        ffi::dds_is_shared_memory_available(self.inner)
+    }
+
     pub(crate) const fn from_existing(
         inner: cyclonedds_sys::dds_entity_t,
     ) -> std::mem::ManuallyDrop<Self> {
