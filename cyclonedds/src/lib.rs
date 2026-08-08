@@ -213,7 +213,7 @@ pub use status::bitflags::Status;
 pub use subscriber::Subscriber;
 pub use time::Time;
 pub use topic::Topic;
-pub use topicable::{Key, Topicable};
+pub use topicable::{FixedSize, FixedSizeTopic, Key, Topicable};
 pub use waitset::WaitSet;
 pub use writer::Writer;
 
