@@ -677,6 +677,8 @@ fn psmx_zero_copy_take_loaned_materializes_a_key_only_sample() -> dds::Result<()
     );
     // The materialized sample is what `Topicable::from_key` builds.
     assert_eq!(samples[0].sensor_id, sample.sensor_id);
+    // And the key itself comes back either way.
+    assert_eq!(samples[0].key(), dds::Topicable::as_key(&sample));
 
     assert_eq!(trace.states(&topic_name), ["RAW_DATA", "RAW_KEY"]);
 

@@ -230,6 +230,53 @@ where
     pub const fn is_key(&self) -> bool {
         self.materialized.is_some()
     }
+
+    /// The key of the instance this sample belongs to.
+    ///
+    /// Returned by value rather than by reference. A borrowed key would have to be
+    /// stored somewhere, and the only place available is the serdata — which
+    /// several samples can share across threads, so caching one there is what this
+    /// type is built to avoid. For a full sample the key is extracted from the
+    /// payload; for a key-only notification it is the key that arrived.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant, Reader, Topicable, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Reading {
+    /// #     #[dds(key)]
+    /// #     sensor_id: u32,
+    /// #     sequence: u32,
+    /// #     value: f64,
+    /// # }
+    /// # let topic = TopicBuilder::<Reading>::new(&participant, "Readings")
+    /// #     .with_zero_copy()
+    /// #     .build()?;
+    /// # let reader = Reader::new(&topic)?;
+    /// # let writer = Writer::new(&topic)?;
+    /// let sample = Reading {
+    ///     sensor_id: 4,
+    ///     sequence: 1,
+    ///     value: 0.5,
+    /// };
+    /// writer.write(&sample)?;
+    ///
+    /// let samples = reader.take_loaned()?;
+    /// assert_eq!(samples[0].key(), sample.as_key());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn key(&self) -> T::Key {
+        crate::Topicable::as_key(&**self)
+    }
 }
 
 impl<T> std::ops::Deref for LoanedSample<'_, T>
