@@ -199,6 +199,32 @@ where
     assert!(*samples[0] == *expected, "the sample did not round-trip");
 }
 
+/// Wait for exactly one loaned sample, without draining the reader.
+fn await_one_loaned_sample<'r, T, R>(
+    reader: &'r dds::Reader<'_, '_, '_, T, R>,
+) -> Vec<dds::LoanedSample<'r, T>>
+where
+    T: dds::Topicable,
+    T::Key: cyclonedds::cdr_bounds::CdrBounds,
+    R: dds::representation::Representation,
+{
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    loop {
+        let samples = reader
+            .take_loaned()
+            .expect("failed to take loaned samples from the reader");
+        if !samples.is_empty() {
+            assert_eq!(samples.len(), 1, "expected exactly one sample");
+            return samples;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no sample arrived over PSMX within {TIMEOUT:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 /// A keyed topic type whose in-memory representation may be shared verbatim.
 ///
 /// `derive(FixedSize)` checks the layout: `repr(C)`, no padding, every field
@@ -547,6 +573,142 @@ fn loans_are_available_on_a_zero_copy_topic() -> dds::Result<()> {
     let topic = zero_copy_topic::<Reading>(&participant, &common::topic::unique_name())?;
     let writer = dds::Writer::new(&topic)?;
     assert!(writer.loan().is_ok());
+
+    Ok(())
+}
+
+/// A borrowing read on a zero-copy topic hands back the writer's own memory.
+///
+/// This is the end-to-end zero-copy claim, checked directly rather than inferred:
+/// the address the writer filled in through its loan is the address the reader
+/// derefs to. Nothing copied the payload at any point between them.
+#[test]
+fn psmx_zero_copy_take_loaned_borrows_the_writers_memory() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    paired_endpoints!(&trace, 0x09, "borrowed", zero_copy_topic::<Reading>, &topic_name => reader, writer);
+
+    let expected = Reading {
+        sensor_id: 42,
+        sequence: 3,
+        value: 12.5,
+    };
+
+    let mut loan = writer.loan()?;
+    let published = loan.write(expected);
+    let published_address = std::ptr::from_ref(published).addr();
+    writer.write_loaned(loan)?;
+
+    let samples = await_one_loaned_sample(&reader);
+    let sample = &samples[0];
+
+    assert_eq!(**sample, expected);
+    assert!(!sample.is_key());
+    assert_eq!(
+        std::ptr::from_ref(&**sample).addr(),
+        published_address,
+        "the reader should borrow the writer's memory, not a copy of it"
+    );
+    assert_eq!(trace.states(&topic_name), ["RAW_DATA"]);
+
+    Ok(())
+}
+
+/// A borrowing read works on an ordinary topic too, without the zero-copy part.
+///
+/// The payload was deserialized into the reader's own memory, so there is nothing
+/// shared to borrow — but the read still avoids copying it back out again, which
+/// is the part that applies to every topic.
+#[test]
+fn psmx_take_loaned_works_on_a_serialized_topic() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    paired_endpoints!(&trace, 0x0a, "borrowed-cdr", plain_topic, &topic_name => reader, writer);
+
+    let expected = common::topic::Data {
+        x: 5,
+        y: 7,
+        message: format!("borrowed from {topic_name}"),
+    };
+    writer.write(&expected)?;
+
+    let samples = await_one_loaned_sample(&reader);
+    assert_eq!(samples[0].x, expected.x);
+    assert_eq!(samples[0].y, expected.y);
+    assert_eq!(samples[0].message, expected.message);
+    assert!(!samples[0].is_key());
+    assert_eq!(trace.states(&topic_name), ["SERIALIZED_DATA"]);
+
+    Ok(())
+}
+
+/// A disposed instance arrives as a key-only sample, which has no payload to
+/// borrow and so is materialized from the key.
+#[test]
+fn psmx_zero_copy_take_loaned_materializes_a_key_only_sample() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    paired_endpoints!(
+        &trace,
+        0x0b,
+        "borrowed-key",
+        zero_copy_topic::<Reading>,
+        &topic_name => reader,
+        writer
+    );
+
+    let sample = Reading {
+        sensor_id: 11,
+        sequence: 1,
+        value: 3.5,
+    };
+    writer.write(&sample)?;
+    let samples = await_one_loaned_sample(&reader);
+    assert_eq!(*samples[0], sample);
+    drop(samples);
+
+    // Disposing the instance sends the key alone.
+    writer.dispose(&dds::Topicable::as_key(&sample))?;
+
+    let samples = await_one_loaned_sample(&reader);
+    assert!(
+        samples[0].is_key(),
+        "a dispose notification carries only the key"
+    );
+    // The materialized sample is what `Topicable::from_key` builds.
+    assert_eq!(samples[0].sensor_id, sample.sensor_id);
+
+    assert_eq!(trace.states(&topic_name), ["RAW_DATA", "RAW_KEY"]);
+
+    Ok(())
+}
+
+/// Loaned samples go back when they drop, so the writer's pool keeps turning
+/// over.
+///
+/// A retained loan is memory the writer's PSMX Instance cannot reuse. Publishing
+/// and borrowing far more samples than the plugin has blocks for only works if
+/// each borrow is released on drop.
+#[test]
+fn psmx_zero_copy_loaned_samples_are_released_on_drop() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    paired_endpoints!(&trace, 0x0c, "released", zero_copy_topic::<Reading>, &topic_name => reader, writer);
+
+    for sequence in 0..64 {
+        let sample = Reading {
+            sensor_id: 1,
+            sequence,
+            value: f64::from(sequence),
+        };
+        writer.write(&sample)?;
+
+        let samples = await_one_loaned_sample(&reader);
+        assert_eq!(samples[0].sequence, sequence);
+        // Dropped here, which is what hands the loan back.
+    }
+
+    assert_eq!(trace.states(&topic_name).len(), 64);
 
     Ok(())
 }

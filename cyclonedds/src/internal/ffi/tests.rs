@@ -272,7 +272,7 @@ fn test_serdata_ops_from_keyhash() {
     let result = serdata_ops::from_keyhash_with_mode::<Data, Serialized>(&sertype, &keyhash, false);
     assert_ne!(result, std::ptr::null_mut());
 
-    let mut serdata =
+    let serdata =
         unsafe { Box::from_raw(result.cast::<crate::internal::serdata::Serdata<Data>>()) };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Key);
     assert_eq!(serdata.key(), &key);
@@ -286,7 +286,7 @@ fn test_serdata_ops_from_keyhash() {
     };
     assert_ne!(result, std::ptr::null_mut());
 
-    let mut serdata =
+    let serdata =
         unsafe { Box::from_raw(result.cast::<crate::internal::serdata::Serdata<Data>>()) };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Key);
     assert_eq!(serdata.key(), &key);
@@ -2063,7 +2063,7 @@ fn test_serdata_ops_from_psmx_serialized_data() {
         );
     }
 
-    let mut serdata = unsafe {
+    let serdata = unsafe {
         Box::from_raw(result.cast::<crate::internal::serdata::Serdata<crate::tests::topic::Data>>())
     };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Data);
@@ -2097,7 +2097,7 @@ fn test_serdata_ops_from_psmx_serialized_key() {
     };
     assert_ne!(result, std::ptr::null_mut(), "expected a serdata");
 
-    let mut serdata = unsafe {
+    let serdata = unsafe {
         Box::from_raw(result.cast::<crate::internal::serdata::Serdata<crate::tests::topic::Data>>())
     };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Key);
@@ -2469,7 +2469,7 @@ fn test_serdata_ops_from_psmx_raw_data() {
     };
     assert_ne!(result, std::ptr::null_mut(), "expected a serdata");
 
-    let mut serdata =
+    let serdata =
         unsafe { Box::from_raw(result.cast::<crate::internal::serdata::Serdata<RawData>>()) };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Data);
     assert_eq!(serdata.sample(), &sample);
@@ -2651,7 +2651,7 @@ fn test_serdata_ops_from_sample_raw_representation() {
     };
     assert_ne!(result, std::ptr::null_mut());
 
-    let mut serdata =
+    let serdata =
         unsafe { Box::from_raw(result.cast::<crate::internal::serdata::Serdata<RawData>>()) };
     assert_eq!(serdata.sample(), &sample);
     drop(serdata);
@@ -2666,7 +2666,7 @@ fn test_serdata_ops_from_sample_raw_representation() {
     };
     assert_ne!(result, std::ptr::null_mut());
 
-    let mut serdata =
+    let serdata =
         unsafe { Box::from_raw(result.cast::<crate::internal::serdata::Serdata<RawData>>()) };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Key);
     assert_eq!(serdata.key(), &sample.id);

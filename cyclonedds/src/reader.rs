@@ -492,6 +492,99 @@ where
         ffi::dds_reader_wait_for_historical_data(self.inner, timeout.inner)
     }
 
+    /// Takes samples, borrowing their payloads instead of copying them.
+    ///
+    /// Like [`take`](Reader::take): the samples are removed from the reader cache
+    /// and will not be seen again. What differs is what comes back — a
+    /// [`LoanedSample`](crate::LoanedSample) borrows the payload where a
+    /// [`SampleOrKey`](crate::sample::SampleOrKey) owns a copy of it.
+    ///
+    /// On a topic built with
+    /// [`with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy), and for a
+    /// sample that arrived through a shared-memory PSMX Instance, that borrow is
+    /// of the writer's shared memory: the sample is never copied between the two
+    /// processes. On any other topic the payload had to be decoded into the
+    /// reader's memory first, so this still saves the copy [`take`](Reader::take)
+    /// makes, but no more than that.
+    ///
+    /// The samples borrow the reader, so they cannot outlive it. Return them
+    /// promptly on a zero-copy topic: until they drop, the shared memory they
+    /// point at cannot be reused by the writer's PSMX Instance, and a writer whose
+    /// pool runs dry has to wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to take samples.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant, Reader, Writer};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default, PartialEq,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Frame {
+    /// #     pixels: [u8; 16],
+    /// # }
+    /// let topic = TopicBuilder::<Frame>::new(&participant, "Frames")
+    ///     .with_zero_copy()
+    ///     .build()?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// writer.write(&Frame { pixels: [7; 16] })?;
+    ///
+    /// let samples = reader.take_loaned()?;
+    /// assert_eq!(samples.len(), 1);
+    /// // Derefs to the payload without copying it.
+    /// assert_eq!(samples[0].pixels[0], 7);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn take_loaned(&self) -> Result<Vec<crate::LoanedSample<'_, T>>> {
+        ffi::dds_take_loaned(self.inner)
+    }
+
+    /// Reads samples, borrowing their payloads instead of copying them.
+    ///
+    /// The borrowing counterpart of [`read`](Reader::read): the samples stay in
+    /// the reader cache and are marked as read. See
+    /// [`take_loaned`](Reader::take_loaned) for what borrowing buys and what it
+    /// costs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to read samples.
+    ///
+    /// # Examples
+    ///
+    /// See [`take_loaned`](Reader::take_loaned).
+    pub fn read_loaned(&self) -> Result<Vec<crate::LoanedSample<'_, T>>> {
+        ffi::dds_read_loaned(self.inner)
+    }
+
+    /// Peeks at samples, borrowing their payloads instead of copying them.
+    ///
+    /// The borrowing counterpart of [`peek`](Reader::peek): the samples stay in
+    /// the reader cache and stay unread. See
+    /// [`take_loaned`](Reader::take_loaned) for what borrowing buys and what it
+    /// costs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to peek samples.
+    ///
+    /// # Examples
+    ///
+    /// See [`take_loaned`](Reader::take_loaned).
+    pub fn peek_loaned(&self) -> Result<Vec<crate::LoanedSample<'_, T>>> {
+        ffi::dds_peek_loaned(self.inner)
+    }
+
     /// Whether this reader can receive through a shared-memory PSMX Instance.
     ///
     /// Returns `true` when the reader resolved to at least one Pub/Sub Message

@@ -35,6 +35,12 @@ static void ddsi_serdata_unref_bindgen_wrapper(struct ddsi_serdata* serdata) {
   ddsi_serdata_unref(serdata);
 }
 
+/// Increments the reference count of a `dds_loaned_sample` object.
+static void dds_loaned_sample_ref_bindgen_wrapper(
+    dds_loaned_sample_t* loaned_sample) {
+  dds_loaned_sample_ref(loaned_sample);
+}
+
 /// Decrements the reference count of a `dds_loaned_sample` object, releasing it
 /// through the owning PSMX interface once it reaches zero.
 static void dds_loaned_sample_unref_bindgen_wrapper(

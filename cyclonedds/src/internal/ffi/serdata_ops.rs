@@ -497,7 +497,7 @@ where
 
     let mut untyped_serdata = Box::new(Serdata::new(
         sertype,
-        SampleOrKey::new_key(serdata.sample.as_ref().key().clone()),
+        SampleOrKey::new_key(serdata.key().clone()),
     ));
     untyped_serdata.inner.type_ = std::ptr::null_mut();
 
@@ -740,18 +740,19 @@ where
 /// still encoded the sample and this decodes it.
 ///
 /// A [`PayloadLayout::Raw`] payload is the receiving half of zero-copy and needs
-/// no decoding at all — just the one `memcpy` out of the loan. It is only
-/// interpretable for a topic whose representation is
-/// [`ZeroCopy`][crate::representation::ZeroCopy], whose
-/// [`FixedSizeTopic`][crate::FixedSizeTopic] contract is what makes reading bytes
-/// another process wrote as a `T` sound. A raw loan arriving for any other topic
-/// is rejected: the payload would be some other binding's memory layout, with
-/// nothing valid to reinterpret it as.
+/// no decoding at all: the returned [`Serdata`] *stays* in the loaned memory and
+/// retains the loan, so the sample is never copied. It is only interpretable for
+/// a topic whose representation is [`ZeroCopy`][crate::representation::ZeroCopy],
+/// whose [`FixedSizeTopic`][crate::FixedSizeTopic] contract is what makes reading
+/// bytes another process wrote as a `T` sound. A raw loan arriving for any other
+/// topic is rejected: the payload would be some other binding's memory layout,
+/// with nothing valid to reinterpret it as.
 ///
-/// Either way the sample is copied out of the loan, so the returned [`Serdata`]
-/// holds no reference to the loaned memory and leaves
-/// [`ddsi_serdata::loan`][cyclonedds_sys::ddsi_serdata::loan] null. Cyclone DDS
-/// is then free to drop the loan as soon as this returns.
+/// Retaining the loan is what
+/// [`Reader::take_loaned`][crate::Reader::take_loaned] hands out, and mirrors
+/// what the C library's own sertype does. It also means the reader's history
+/// cache pins loaned memory for a zero-copy topic — history depth times sample
+/// size — whether or not the application reads through the borrowing API.
 ///
 /// ## Safety
 /// - `sertype` must be a non-null pointer to a fully-initialized [`Sertype<T, R>`].
@@ -791,17 +792,34 @@ where
             // A PSMX implementation is only obliged to align loans for the types
             // IDL maps to. Reading through a misaligned reference is undefined
             // behaviour, so drop the sample instead.
-            let sample = loan.sample_ptr.cast::<T>();
-            if sample.is_null() || !sample.is_aligned() {
+            if loan.sample_ptr.is_null() || !loan.sample_ptr.cast::<T>().is_aligned() {
                 return std::ptr::null_mut();
             }
 
             // SAFETY: guaranteed by the caller, and checked above to be non-null
             // and aligned.
-            match unsafe { R::read_raw_loan(kind, sample.cast()) } {
-                Some(sample) => into_serdata(sertype, sample),
-                None => return std::ptr::null_mut(),
-            }
+            let Some(sample) = (unsafe { R::borrow_raw_loan(loan.sample_ptr) }) else {
+                return std::ptr::null_mut();
+            };
+
+            // Keep the loan alive for as long as the serdata that points into it.
+            // Taking the reference before building the serdata means the loan is
+            // owned by exactly one thing at every point: on failure below there is
+            // nothing to release, because the serdata was never created.
+            //
+            // SAFETY: `loan` is a live loan on which the caller holds a reference,
+            // so taking another is valid; `serdata_ops::free` releases it again.
+            let serdata = unsafe {
+                crate::internal::ffi::dds_loaned_sample_ref(std::ptr::from_ref(loan).cast_mut());
+                Box::into_raw(Box::new(Serdata::new_loaned(sertype, kind, sample)))
+                    .cast::<cyclonedds_sys::ddsi_serdata>()
+            };
+
+            // SAFETY: freshly allocated above, and a `Serdata<T>` starts with its
+            // `ddsi_serdata`.
+            unsafe { &mut *serdata }.loan = std::ptr::from_ref(loan).cast_mut();
+
+            serdata
         }
         // SAFETY: guaranteed by the caller.
         PayloadLayout::Serialized => match unsafe { serialized_payload(loan, metadata) } {

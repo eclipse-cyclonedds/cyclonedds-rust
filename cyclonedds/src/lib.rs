@@ -211,7 +211,7 @@ pub use guard_condition::GuardCondition;
 pub use listener::{
     Listener, PublisherListener, ReaderListener, SubscriberListener, TopicListener, WriterListener,
 };
-pub use loan::Loan;
+pub use loan::{Loan, LoanedSample};
 pub use participant::Participant;
 pub use publisher::Publisher;
 pub use qos::QoS;

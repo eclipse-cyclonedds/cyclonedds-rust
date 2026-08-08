@@ -148,3 +148,144 @@ where
         let _ = ffi::dds_return_loan(self.writer.inner, self.sample.cast());
     }
 }
+
+/// A sample borrowed from a [`Reader`](crate::Reader).
+///
+/// Handed out by [`Reader::take_loaned`](crate::Reader::take_loaned) and its
+/// siblings. Where an ordinary [`read`](crate::Reader::read) copies the payload
+/// out, this borrows it in place and derefs to it, releasing it on drop.
+///
+/// On a topic that opted into zero-copy that borrow reaches all the way: for a
+/// sample delivered through a shared-memory PSMX Instance, what this derefs to
+/// *is* the writer's shared memory, never copied on the way. On any other topic
+/// the payload was decoded into the reader's own memory, so this saves the copy a
+/// read would otherwise make but nothing more.
+///
+/// The borrow is tied to the reader, so a sample cannot outlive it. That matters
+/// most for a zero-copy topic, where holding samples holds shared memory that the
+/// writer's PSMX Instance cannot reuse until they go back.
+///
+/// # Key-only samples
+///
+/// A disposed or unregistered instance arrives as a key with no payload. There is
+/// nothing to borrow in that case, so the sample is materialized through
+/// [`Topicable::from_key`](crate::Topicable::from_key) — the same value an
+/// ordinary read would produce. [`is_key`](LoanedSample::is_key) distinguishes
+/// the two.
+///
+/// # Examples
+///
+/// See [`Reader::take_loaned`](crate::Reader::take_loaned).
+pub struct LoanedSample<'reader, T>
+where
+    T: crate::Topicable,
+{
+    /// One reference to the serdata, which is what keeps the payload alive — and
+    /// with it, for a zero-copy topic, the PSMX loan the payload lives in.
+    serdata: *mut cyclonedds_sys::ddsi_serdata,
+    /// Set only for a key-only sample, which has no payload to borrow.
+    materialized: Option<Box<T>>,
+    info: crate::sample::Info,
+    phantom_reader: std::marker::PhantomData<&'reader ()>,
+}
+
+impl<T> LoanedSample<'_, T>
+where
+    T: crate::Topicable,
+{
+    /// Take over one reference to `serdata`.
+    ///
+    /// ## Safety
+    /// - `serdata` must point to a fully-initialized [`Serdata<T>`][crate::internal::serdata::Serdata],
+    ///   and ownership of one reference to it passes to the returned value.
+    /// - `materialized` must be [`Some`] exactly when the serdata carries only a key, since that is
+    ///   when there is no payload to borrow.
+    #[allow(
+        unsafe_code,
+        reason = "taking over a reference the caller must vouch for"
+    )]
+    pub(crate) const unsafe fn new(
+        serdata: *mut cyclonedds_sys::ddsi_serdata,
+        materialized: Option<Box<T>>,
+        info: crate::sample::Info,
+    ) -> Self {
+        Self {
+            serdata,
+            materialized,
+            info,
+            phantom_reader: std::marker::PhantomData,
+        }
+    }
+
+    /// The [`Info`](crate::sample::Info) Cyclone DDS reported alongside the
+    /// sample.
+    #[must_use]
+    pub const fn info(&self) -> &crate::sample::Info {
+        &self.info
+    }
+
+    /// Whether this arrived as a key-only notification, and so was materialized
+    /// rather than borrowed.
+    #[must_use]
+    pub const fn is_key(&self) -> bool {
+        self.materialized.is_some()
+    }
+}
+
+impl<T> std::ops::Deref for LoanedSample<'_, T>
+where
+    T: crate::Topicable,
+{
+    type Target = T;
+
+    #[allow(
+        unsafe_code,
+        reason = "borrowing the payload the retained serdata owns, which is the point of this type"
+    )]
+    fn deref(&self) -> &T {
+        if let Some(materialized) = &self.materialized {
+            return materialized;
+        }
+
+        // SAFETY: the reference taken when this was built keeps the `Serdata`, and
+        // any loan behind it, alive for at least as long as `self`. The pointer
+        // was non-null at construction, since a key-only sample is the only case
+        // with no payload and that one is materialized instead.
+        unsafe {
+            &*(*self.serdata.cast::<crate::internal::serdata::Serdata<T>>())
+                .sample_ptr()
+                .unwrap_unchecked()
+        }
+    }
+}
+
+impl<T> std::fmt::Debug for LoanedSample<'_, T>
+where
+    T: crate::Topicable,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoanedSample")
+            .field("sample", &**self)
+            .field("info", &self.info)
+            .finish()
+    }
+}
+
+impl<T> Drop for LoanedSample<'_, T>
+where
+    T: crate::Topicable,
+{
+    #[allow(
+        unsafe_code,
+        reason = "relinquishing the serdata reference this type was handed"
+    )]
+    fn drop(&mut self) {
+        // SAFETY: this owns exactly one reference, taken when it was built and not
+        // released since. Once it reaches zero Cyclone DDS frees the serdata,
+        // which is where any PSMX loan behind it goes back.
+        unsafe {
+            let serdata = &mut *self.serdata;
+            ffi::ddsi_serdata_unref(serdata);
+        }
+    }
+}

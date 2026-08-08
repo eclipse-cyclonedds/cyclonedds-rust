@@ -191,6 +191,17 @@ pub unsafe fn dds_loaned_sample_unref(loan: *mut cyclonedds_sys::dds_loaned_samp
     unsafe { cyclonedds_sys::dds_loaned_sample_unref(loan) };
 }
 
+/// Increment the reference count of a loaned sample, so that it outlives the
+/// caller's own reference.
+///
+/// ## Safety
+/// `loan` must be a non-null pointer to a live loaned sample.
+#[inline]
+pub unsafe fn dds_loaned_sample_ref(loan: *mut cyclonedds_sys::dds_loaned_sample) {
+    // SAFETY: guaranteed by the caller.
+    unsafe { cyclonedds_sys::dds_loaned_sample_ref(loan) };
+}
+
 /// Increment the reference count of a sertype. This is primarily used by the
 /// [`Sertype`][`crate::internal::sertype::Sertype`] wrapper.
 #[inline]
@@ -953,6 +964,53 @@ where
     }
 }
 
+/// Collect samples by retaining the serdata Cyclone DDS offers, rather than
+/// copying the payload out of it.
+///
+/// This is what makes a borrowing read free of copies. For a zero-copy topic
+/// whose sample arrived through a PSMX Instance the serdata points into the
+/// loaned memory, so the payload the application ends up looking at is the
+/// writer's; for any other topic it is the reader's own decoded copy, which is
+/// still one copy fewer than [`dds_read_with_collector_callback`] makes.
+///
+/// ## Safety
+/// Called by Cyclone DDS with `arg` pointing at the `Vec` this was handed, and
+/// `serdata` at a live [`Serdata<T>`][crate::internal::serdata::Serdata].
+pub(crate) unsafe extern "C" fn dds_read_with_collector_callback_loaned<T>(
+    arg: *mut std::ffi::c_void,
+    info: *const cyclonedds_sys::dds_sample_info_t,
+    _sertype: *const cyclonedds_sys::ddsi_sertype,
+    serdata: *mut cyclonedds_sys::ddsi_serdata,
+) -> cyclonedds_sys::dds_return_t
+where
+    T: crate::Topicable,
+{
+    let buffer = unsafe { &mut *(arg.cast::<Vec<crate::LoanedSample<'_, T>>>()) };
+
+    let info = unsafe { &*info };
+    let payload = unsafe { &*(serdata.cast::<crate::internal::serdata::Serdata<T>>()) };
+
+    // A key-only notification has no payload to borrow, so build the sample the
+    // application is given up front. Doing it here rather than on demand keeps
+    // `LoanedSample` free of interior mutability, which matters because several of
+    // them can share one serdata.
+    let materialized = match payload.sample_ptr() {
+        Some(_) => None,
+        None => Some(Box::new(crate::Topicable::from_key(payload.key()))),
+    };
+
+    // SAFETY: `serdata` is live for the duration of the callback, so taking a
+    // reference is valid; ownership of it passes to the `LoanedSample`.
+    let sample = unsafe {
+        let serdata = cyclonedds_sys::ddsi_serdata_ref(serdata);
+        crate::LoanedSample::new(serdata, materialized, info.into())
+    };
+
+    buffer.push(sample);
+
+    cyclonedds_sys::DDS_RETCODE_OK.cast_signed()
+}
+
 pub(crate) mod read_operation {
     type Collector = unsafe extern "C" fn(
         reader_or_condition: cyclonedds_sys::dds_entity_t,
@@ -1016,6 +1074,69 @@ where
     );
 
     Ok(samples)
+}
+
+pub(crate) fn dds_peek_read_take_loaned<'reader, T, RO>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::LoanedSample<'reader, T>>>
+where
+    T: crate::Topicable,
+    RO: read_operation::ReadOperation,
+{
+    let mut samples = Vec::new();
+
+    let handle = Default::default();
+    let mask = Default::default();
+    let maxs = i32::MAX as u32;
+    let len = usize::try_from(
+        unsafe {
+            RO::COLLECTOR(
+                reader_or_condition,
+                maxs,
+                handle,
+                mask,
+                Some(dds_read_with_collector_callback_loaned::<T>),
+                (&raw mut samples).cast(),
+            )
+        }
+        .into_error()?,
+    )
+    .expect("len is a non-negative i32 and so always fits in usize");
+
+    assert_eq!(
+        len,
+        samples.len(),
+        "number of samples reported from the C side does not match the final number in the buffer"
+    );
+
+    Ok(samples)
+}
+
+pub fn dds_take_loaned<'reader, T>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::LoanedSample<'reader, T>>>
+where
+    T: crate::Topicable,
+{
+    dds_peek_read_take_loaned::<T, read_operation::Take>(reader_or_condition)
+}
+
+pub fn dds_read_loaned<'reader, T>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::LoanedSample<'reader, T>>>
+where
+    T: crate::Topicable,
+{
+    dds_peek_read_take_loaned::<T, read_operation::Read>(reader_or_condition)
+}
+
+pub fn dds_peek_loaned<'reader, T>(
+    reader_or_condition: cyclonedds_sys::dds_entity_t,
+) -> Result<Vec<crate::LoanedSample<'reader, T>>>
+where
+    T: crate::Topicable,
+{
+    dds_peek_read_take_loaned::<T, read_operation::Peek>(reader_or_condition)
 }
 
 pub fn dds_take<T>(

@@ -110,14 +110,16 @@ where
     /// Package a key for handing to Cyclone DDS.
     fn key_argument(key: &T::Key) -> SampleArgument<'_, T>;
 
-    /// Read a sample out of a PSMX loan whose payload is raw memory.
+    /// Reinterpret the raw payload of a PSMX loan as a `T` that stays in the
+    /// loaned memory.
     ///
     /// Returns [`None`] when this representation cannot interpret such a payload,
     /// which makes the caller drop the sample.
     ///
     /// ## Safety
-    /// `sample` must be valid for reads of one sample in this representation.
-    unsafe fn read_raw_loan(kind: Kind, sample: *const std::ffi::c_void) -> Option<SampleOrKey<T>>;
+    /// `sample` must point to memory holding one fully-initialized sample in this
+    /// representation, which must outlive the returned pointer.
+    unsafe fn borrow_raw_loan(sample: *const std::ffi::c_void) -> Option<*const T>;
 }
 
 impl<T> Layout<T> for Serialized
@@ -278,10 +280,7 @@ where
         SampleArgument::Internal(InternalSample::KeyRef(key))
     }
 
-    unsafe fn read_raw_loan(
-        _kind: Kind,
-        _sample: *const std::ffi::c_void,
-    ) -> Option<SampleOrKey<T>> {
+    unsafe fn borrow_raw_loan(_sample: *const std::ffi::c_void) -> Option<*const T> {
         // The payload is some other binding's memory layout, and a Serde/CDR
         // based `Topicable` has nothing valid to reinterpret it as.
         None
@@ -434,12 +433,11 @@ where
         SampleArgument::RawOwned(T::from_key(key))
     }
 
-    unsafe fn read_raw_loan(kind: Kind, sample: *const std::ffi::c_void) -> Option<SampleOrKey<T>> {
-        // A raw loan holds a sample in exactly the representation `read_sample`
-        // expects, so reuse it rather than restating the conversion.
-        //
-        // SAFETY: guaranteed by the caller. Any bit pattern is a valid `T` by the
-        // `FixedSize` contract, which this representation requires.
-        unsafe { Self::read_sample(kind, sample) }
+    unsafe fn borrow_raw_loan(sample: *const std::ffi::c_void) -> Option<*const T> {
+        // The loaned bytes already *are* a `T`: any bit pattern is a valid one by
+        // the `FixedSize` contract, which this representation requires. So the
+        // receive side needs no conversion at all — this is the half of zero-copy
+        // that makes a read free of copies.
+        Some(sample.cast::<T>())
     }
 }
