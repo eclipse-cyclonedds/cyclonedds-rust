@@ -287,6 +287,7 @@ fn main() -> Result<(), BuildError> {
         .allowlist_item("ddsi_.*")
         .allowlist_item("ddsrt_.*")
         .allowlist_var("DDS_.*")
+        .allowlist_var("RTPS_SAMPLE_NATIVE")
         .allowlist_var("DOMAIN_DEFAULT")
         .allowlist_var("DURATION_INFINITE")
         .allowlist_var("TIME_NEVER")

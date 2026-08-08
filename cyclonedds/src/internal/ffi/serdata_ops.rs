@@ -789,6 +789,14 @@ where
 
     let serdata = match payload {
         PayloadLayout::Raw => {
+            // A raw payload must say it is unserialized. Anything else means the
+            // loan does not hold what its state claims, so there is no reason to
+            // believe the bytes are this topic's type; the C library's own sertype
+            // rejects it on the same grounds.
+            if metadata.cdr_identifier != cyclonedds_sys::RTPS_SAMPLE_NATIVE {
+                return std::ptr::null_mut();
+            }
+
             // A PSMX implementation is only obliged to align loans for the types
             // IDL maps to. Reading through a misaligned reference is undefined
             // behaviour, so drop the sample instead.

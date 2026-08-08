@@ -1961,6 +1961,10 @@ impl PsmxLoanFixture {
 
     /// Build a loan around an already-encoded `payload`, without the
     /// encapsulation header.
+    ///
+    /// A raw state gets the `cdr_identifier` a PSMX Instance is required to use
+    /// for an unserialized payload, matching what the C library's own write path
+    /// puts there.
     fn from_payload(payload: Vec<u8>, state: cyclonedds_sys::dds_loaned_sample_state_t) -> Self {
         use crate::internal::traits::CdrHeader;
 
@@ -1975,7 +1979,13 @@ impl PsmxLoanFixture {
 
         metadata.sample_state = state;
         metadata.sample_size = u32::try_from(payload.len()).unwrap();
-        metadata.cdr_identifier = u16::from_ne_bytes([identifier_hi, identifier_lo]);
+        metadata.cdr_identifier = match state {
+            cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_KEY
+            | cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_DATA => {
+                cyclonedds_sys::RTPS_SAMPLE_NATIVE
+            }
+            _ => u16::from_ne_bytes([identifier_hi, identifier_lo]),
+        };
         metadata.cdr_options = u16::from_ne_bytes([options_hi, options_lo]);
 
         // SAFETY: `dds_loaned_sample` is repr(C) and consists solely of raw
@@ -2438,6 +2448,56 @@ fn test_sertype_raw_declares_memcpy_safe_properties() {
     let _ = Box::into_raw(sertype);
     crate::internal::ffi::ddsi_sertype_unref(&mut internal.inner);
     let _ = Box::into_raw(internal);
+}
+
+/// A raw loan whose metadata does not claim native encoding is rejected.
+///
+/// The state says the payload is the application's own memory while the encoding
+/// identifier says it is serialized CDR. The two cannot both be true, so there is
+/// no reason to believe the bytes are this topic's type — reinterpreting them as
+/// one would be reading another layout entirely. The C library's own sertype
+/// refuses on the same grounds.
+#[test]
+fn test_serdata_ops_from_psmx_raw_rejects_a_non_native_encoding() {
+    use crate::internal::traits::CdrHeader;
+
+    let sample = RawData {
+        id: 9,
+        sequence: 4,
+        payload: [1, 2, 3, 4, 5, 6, 7, 8],
+    };
+
+    let sertype = raw_sertype();
+
+    let payload = unsafe {
+        std::slice::from_raw_parts(
+            (&raw const sample).cast::<u8>(),
+            std::mem::size_of::<RawData>(),
+        )
+    }
+    .to_vec();
+
+    let mut fixture = PsmxLoanFixture::from_payload(
+        payload,
+        cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_DATA,
+    );
+
+    // Claim a serialized encoding, which contradicts the raw state.
+    let [identifier_hi, identifier_lo, _, _] = byteorder::NativeEndian::cdr_header();
+    fixture.metadata.cdr_identifier = u16::from_ne_bytes([identifier_hi, identifier_lo]);
+
+    let result = unsafe {
+        serdata_ops::from_psmx::<RawData, ZeroCopy>(&raw const sertype.inner, fixture.as_ptr())
+    };
+    assert_eq!(
+        result,
+        std::ptr::null_mut(),
+        "a raw loan that does not claim native encoding must be dropped"
+    );
+
+    let mut sertype = sertype;
+    crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
+    let _ = Box::into_raw(sertype);
 }
 
 #[test]

@@ -48,6 +48,13 @@ static void dds_loaned_sample_unref_bindgen_wrapper(
   dds_loaned_sample_unref(loaned_sample);
 }
 
+/// The `cdr_identifier` a PSMX loan carries when its payload is not serialized
+/// but the application's own representation.
+///
+/// Defined in an internal header as a macro, so it needs naming here to reach
+/// Rust.
+static const uint16_t RTPS_SAMPLE_NATIVE = DDSI_RTPS_SAMPLE_NATIVE;
+
 /// The value that represents the default domain ID.
 static const dds_domainid_t DOMAIN_DEFAULT = DDS_DOMAIN_DEFAULT;
 /// The value that represents an infinite duration.
