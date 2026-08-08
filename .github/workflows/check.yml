@@ -60,19 +60,24 @@ jobs:
         run: nix develop -c cargo clippy -- --deny warnings
       - name: run tests
         run: |
-          nix develop -c cargo nextest run
-          nix develop -c cargo nextest run --release
+          nix develop -c cargo nextest run --features psmx-tests
+          nix develop -c cargo nextest run --features psmx-tests --release
       - name: run doc tests
         run: |
           nix develop -c cargo test --doc
           nix develop -c cargo test --doc --release
 
+      # NOTE: `cyclonedds-psmx-test` is excluded. It is a test-only PSMX plugin
+      # that is exercised by `cargo nextest run --features psmx-tests`, which
+      # this job cannot enable (see that feature in `cyclonedds/Cargo.toml`), so
+      # its functions would otherwise all count as uncovered.
       - name: check coverage (with branch coverage)
         run: |
           # Remove cached artifacts to avoid mixing coverage from different toolchains.
           rm -rf target/llvm-cov-target
           nix develop .#nightly -c cargo llvm-cov nextest --branch --fail-under-functions 95 \
-            --fail-under-lines 95 --fail-under-regions 95
+            --fail-under-lines 95 --fail-under-regions 95 \
+            --ignore-filename-regex 'cyclonedds-psmx-test'
       - name: run cargo deny
         run: nix develop -c cargo deny check
 
@@ -150,7 +155,7 @@ jobs:
       - name: run clippy
         run: nix develop -c cargo clippy -- --deny warnings
       - name: run tests
-        run: nix develop -c cargo nextest run
+        run: nix develop -c cargo nextest run --features psmx-tests
       - name: run doc tests
         run: nix develop -c cargo test --doc
 

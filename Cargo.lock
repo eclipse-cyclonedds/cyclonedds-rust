@@ -185,6 +185,7 @@ dependencies = [
  "byteorder",
  "cdr-encoding",
  "eclipse-cyclonedds-macros",
+ "eclipse-cyclonedds-psmx-test",
  "eclipse-cyclonedds-sys",
  "md-5",
  "serde",
@@ -201,6 +202,13 @@ dependencies = [
  "quote",
  "syn 3.0.10",
  "trybuild",
+]
+
+[[package]]
+name = "eclipse-cyclonedds-psmx-test"
+version = "0.0.4"
+dependencies = [
+ "eclipse-cyclonedds-sys",
 ]
 
 [[package]]

@@ -1,0 +1,26 @@
+[package]
+name = "eclipse-cyclonedds-psmx-test"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+description = "In-process PSMX plugin used to exercise the shared-memory path in tests"
+publish = false
+
+[lib]
+name = "psmx_rusttest"
+# `cdylib` because Cyclone DDS loads a PSMX plugin with `dlopen`/`dlsym`.
+#
+# `rlib` as well, so this crate can be named as a dev-dependency of the
+# `eclipse-cyclonedds` crate. That dependency exists purely to make Cargo build
+# the `cdylib` before the integration tests that `dlopen` it run; nothing calls
+# into the `rlib`.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+eclipse-cyclonedds-sys = { workspace = true }
+
+[features]
+vendored = ["eclipse-cyclonedds-sys/vendored"]

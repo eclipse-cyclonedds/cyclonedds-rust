@@ -31,10 +31,36 @@ md-5 = "0.11.0"
 [dev-dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 uuid = { version = "1.19.0", features = ["v4"] }
+# Present so Cargo builds the PSMX plugin `cdylib` before `tests/psmx.rs`, which
+# loads it through Cyclone DDS at runtime. Nothing calls into it directly.
+eclipse-cyclonedds-psmx-test = { version = "0.0.4", path = "../cyclonedds-psmx-test" }
+
+[[test]]
+name = "psmx"
+# See the `psmx-tests` feature.
+required-features = ["psmx-tests"]
 
 [features]
 vendored = ["eclipse-cyclonedds-sys/vendored"]
 internal = []
+# Enables the shared-memory (PSMX) integration tests in `tests/psmx.rs`.
+#
+# Off by default because those tests need Cyclone DDS to `dlopen` a `cdylib`
+# built from this workspace, which does not survive every build configuration:
+#
+# - under AddressSanitizer the `dlopen`ed library cannot resolve the `__asan_*`
+#   symbols of the statically linked sanitizer runtime, and fails to load;
+# - the nightly artifact layout puts the plugin somewhere the test cannot
+#   reliably find it (see `plugin_path` in `tests/psmx.rs`);
+# - with `vendored`, Cyclone DDS is a static library linked into the test binary,
+#   whose symbols the test binary does not export. The plugin then resolves its
+#   Cyclone DDS symbols against a *different* copy of the library, and the two
+#   copies do not share entity handles, so delivery fails. Making this work needs
+#   a shared Cyclone DDS common to both.
+#
+# So CI enables this for the ordinary test runs, and leaves it off for the
+# sanitizer, coverage and vendored jobs.
+psmx-tests = []
 
 [lints]
 workspace = true

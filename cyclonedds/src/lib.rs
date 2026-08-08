@@ -171,6 +171,13 @@
 // Enable field-by-field deserialization for derived topic types.
 use serde_derive as _;
 
+// The `eclipse-cyclonedds-psmx-test` dev-dependency is here only so that Cargo
+// builds the PSMX plugin `cdylib` that `tests/psmx.rs` has Cyclone DDS load at
+// runtime. No Rust code calls into it, so tell
+// `unused_crate_dependencies` that the dependency is deliberate.
+#[cfg(test)]
+use psmx_rusttest as _;
+
 pub mod cdr_bounds;
 mod domain;
 mod duration;
