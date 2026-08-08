@@ -712,3 +712,105 @@ fn psmx_zero_copy_loaned_samples_are_released_on_drop() -> dds::Result<()> {
 
     Ok(())
 }
+
+/// `read_loaned` leaves the sample in the cache, so the same payload can be
+/// borrowed more than once at a time.
+///
+/// This is the case `take_loaned` cannot reach: two live `LoanedSample`s sharing
+/// one serdata. Both must borrow the same memory, and the second must still be
+/// valid after the first goes away.
+#[test]
+fn psmx_zero_copy_read_loaned_can_borrow_one_sample_twice() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    paired_endpoints!(&trace, 0x0d, "reread", zero_copy_topic::<Reading>, &topic_name => reader, writer);
+
+    let expected = Reading {
+        sensor_id: 7,
+        sequence: 2,
+        value: 9.5,
+    };
+
+    let mut loan = writer.loan()?;
+    let published_address = std::ptr::from_ref(loan.write(expected)).addr();
+    writer.write_loaned(loan)?;
+
+    // Wait without consuming, so the sample stays available to read again.
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    while reader.peek_loaned()?.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no sample arrived over PSMX within {TIMEOUT:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    let first = reader.read_loaned()?;
+    let second = reader.read_loaned()?;
+    assert_eq!(first.len(), 1);
+    assert_eq!(second.len(), 1);
+
+    // Both borrows are of the writer's memory, and of the same address.
+    assert_eq!(std::ptr::from_ref(&*first[0]).addr(), published_address);
+    assert_eq!(std::ptr::from_ref(&*second[0]).addr(), published_address);
+    assert_eq!(*first[0], expected);
+
+    // The surviving borrow stays valid once the other is released.
+    drop(first);
+    assert_eq!(*second[0], expected);
+    assert_eq!(std::ptr::from_ref(&*second[0]).addr(), published_address);
+
+    // And a take afterwards still sees it, since reads do not consume.
+    let taken = reader.take_loaned()?;
+    assert_eq!(taken.len(), 1);
+    assert_eq!(*taken[0], expected);
+
+    assert_eq!(trace.states(&topic_name), ["RAW_DATA"]);
+
+    Ok(())
+}
+
+/// `peek_loaned` neither consumes the sample nor marks it read.
+#[test]
+fn psmx_peek_loaned_leaves_the_sample_unread() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    paired_endpoints!(&trace, 0x0e, "peeked", plain_topic, &topic_name => reader, writer);
+
+    let expected = common::topic::Data {
+        x: 1,
+        y: 2,
+        message: format!("peeked from {topic_name}"),
+    };
+    writer.write(&expected)?;
+
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    while reader.peek_loaned()?.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no sample arrived over PSMX within {TIMEOUT:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    // Peeking repeatedly keeps returning it, and leaves it unread.
+    for _ in 0..3 {
+        let peeked = reader.peek_loaned()?;
+        assert_eq!(peeked.len(), 1);
+        assert_eq!(peeked[0].message, expected.message);
+        assert!(
+            peeked[0].info().state.contains(dds::State::SampleFresh),
+            "peek must leave the sample unread"
+        );
+    }
+
+    // Reading marks it read; peeking again shows that.
+    assert_eq!(reader.read_loaned()?.len(), 1);
+    let peeked = reader.peek_loaned()?;
+    assert!(
+        peeked[0].info().state.contains(dds::State::SampleStale),
+        "the sample should be marked read after a read"
+    );
+
+    Ok(())
+}
