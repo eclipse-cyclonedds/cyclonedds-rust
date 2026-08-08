@@ -500,7 +500,7 @@ where
     /// [`SampleOrKey`](crate::sample::SampleOrKey) owns a copy of it.
     ///
     /// On a topic built with
-    /// [`with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy), and for a
+    /// [`ZeroCopy`](crate::representation::ZeroCopy) representation, and for a
     /// sample that arrived through a shared-memory PSMX Instance, that borrow is
     /// of the writer's shared memory: the sample is never copied between the two
     /// processes. On any other topic the payload had to be decoded into the
@@ -520,7 +520,7 @@ where
     ///
     /// ```
     /// # use cyclonedds::builder::TopicBuilder;
-    /// # use cyclonedds::{Domain, Participant, Reader, Writer};
+    /// # use cyclonedds::{Domain, Participant, Reader, Writer, ZeroCopy};
     /// # let domain = Domain::default();
     /// # let participant = Participant::new(&domain)?;
     /// # #[derive(
@@ -531,9 +531,7 @@ where
     /// # struct Frame {
     /// #     pixels: [u8; 16],
     /// # }
-    /// let topic = TopicBuilder::<Frame>::new(&participant, "Frames")
-    ///     .with_zero_copy()
-    ///     .build()?;
+    /// let topic = TopicBuilder::<Frame, ZeroCopy>::new(&participant, "Frames").build()?;
     /// let reader = Reader::new(&topic)?;
     /// let writer = Writer::new(&topic)?;
     ///

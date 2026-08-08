@@ -266,7 +266,7 @@ struct Frame {
     pixels: [u8; 16],
 }
 
-/// A zero-copy topic: `with_zero_copy` is what makes the sertype memcpy-safe.
+/// A zero-copy topic: naming `ZeroCopy` is what makes the sertype memcpy-safe.
 fn zero_copy_topic<'d, 'p, T>(
     participant: &'p dds::Participant<'d>,
     topic_name: &str,
@@ -274,9 +274,7 @@ fn zero_copy_topic<'d, 'p, T>(
 where
     T: dds::FixedSizeTopic,
 {
-    dds::builder::TopicBuilder::<T>::new(participant, topic_name)
-        .with_zero_copy()
-        .build()
+    dds::builder::TopicBuilder::<T, dds::ZeroCopy>::new(participant, topic_name).build()
 }
 
 /// An ordinary topic, which travels as CDR even over PSMX.

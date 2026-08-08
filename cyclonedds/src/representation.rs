@@ -2,11 +2,10 @@
 //!
 //! Every [`Topic`](crate::Topic) carries one of these markers as a type
 //! parameter, which decides how its samples travel and what its endpoints can
-//! do. [`Serialized`] is the default and needs no mention; [`ZeroCopy`] is
-//! reached through
-//! [`TopicBuilder::with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy)
-//! and carries through to the [`Writer`](crate::Writer) and
-//! [`Reader`](crate::Reader) built from the topic.
+//! do. [`Serialized`] is the default and needs no mention; [`ZeroCopy`] is asked
+//! for by naming it — `Topic::<Frame, ZeroCopy>::new(..)` — and carries through to
+//! the [`Writer`](crate::Writer) and [`Reader`](crate::Reader) built from the
+//! topic.
 //!
 //! The distinction is a type parameter rather than a flag so that operations
 //! which only make sense for one of them — [`Writer::loan`](crate::Writer::loan)

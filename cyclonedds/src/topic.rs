@@ -2,7 +2,7 @@ use crate::internal::ffi;
 use crate::internal::layout::Layout;
 use crate::internal::sertype::Sertype;
 use crate::internal::traits::AsFfi;
-use crate::representation::{Serialized, ZeroCopy};
+use crate::representation::Serialized;
 use crate::{Participant, Result};
 
 /// A typed communication channel.
@@ -37,7 +37,7 @@ where
     participant: &'participant Participant<'domain>,
     topic_name: &'name str,
     qos: Option<&'qos crate::QoS>,
-    listener: Option<crate::TopicListener<T>>,
+    listener: Option<crate::TopicListener<T, R>>,
     phantom_representation: std::marker::PhantomData<R>,
 }
 
@@ -136,7 +136,7 @@ where
     #[must_use]
     pub fn with_listener<L>(mut self, listener: L) -> Self
     where
-        L: AsRef<crate::TopicListener<T>>,
+        L: AsRef<crate::TopicListener<T, R>>,
     {
         self.listener = Some(listener.as_ref().clone());
         self
@@ -204,50 +204,6 @@ where
     }
 }
 
-impl<'d, 'p, 'q, 'n, T> TopicBuilder<'d, 'p, 'q, 'n, T, Serialized>
-where
-    T: crate::FixedSizeTopic,
-{
-    /// Lets Cyclone DDS move samples of this topic as raw memory, which is what
-    /// makes zero-copy transfer over shared memory possible.
-    ///
-    /// Without this, samples of every topic are transferred as CDR: serialized by
-    /// the writer and deserialized by the reader, even when the route between
-    /// them is shared memory. With it, and with a shared-memory PSMX interface
-    /// configured on the domain, a sample written through
-    /// [`Writer::loan`](crate::Writer::loan) reaches readers on the same machine
-    /// without being copied or converted at all.
-    ///
-    /// Requires [`FixedSizeTopic`](crate::FixedSizeTopic), whose contract is what
-    /// makes handing the type's raw bytes to another process sound. This is an
-    /// explicit opt-in rather than automatic because Rust cannot tell, from a
-    /// `T: Topicable` bound alone, whether `T` also implements
-    /// `FixedSizeTopic`.
-    ///
-    /// Readers and writers still interoperate with peers that do not use
-    /// zero-copy; those simply exchange CDR as before.
-    ///
-    /// The topic this builds is a
-    /// [`Topic<T, ZeroCopy>`](crate::representation::ZeroCopy), and its endpoints
-    /// carry that through: it is what makes [`Writer::loan`](crate::Writer::loan)
-    /// and [`Reader::take_loaned`](crate::Reader::take_loaned) available, and they
-    /// exist on no other kind of endpoint.
-    ///
-    /// # Examples
-    ///
-    /// See [`Writer::loan`](crate::Writer::loan).
-    #[must_use]
-    pub const fn with_zero_copy(self) -> TopicBuilder<'d, 'p, 'q, 'n, T, ZeroCopy> {
-        TopicBuilder {
-            participant: self.participant,
-            topic_name: self.topic_name,
-            qos: self.qos,
-            listener: self.listener,
-            phantom_representation: std::marker::PhantomData,
-        }
-    }
-}
-
 #[allow(
     private_bounds,
     reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
@@ -265,6 +221,31 @@ where
     ///
     /// The topic name identifies the communication channel. Writers and
     /// readers match when they share the same name and compatible type.
+    ///
+    /// # Zero copy
+    ///
+    /// Naming [`ZeroCopy`](crate::representation::ZeroCopy) as the topic's
+    /// representation is what asks Cyclone DDS to move its samples as raw memory,
+    /// and so what makes [`Writer::loan`](crate::Writer::loan) and
+    /// [`Reader::take_loaned`](crate::Reader::take_loaned) available on its
+    /// endpoints. It requires [`FixedSizeTopic`](crate::FixedSizeTopic), whose
+    /// contract is what makes handing the type's bytes to another process sound.
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Topic, ZeroCopy};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Frame {
+    /// #     pixels: [u8; 16],
+    /// # }
+    /// let topic = Topic::<Frame, ZeroCopy>::new(&participant, "Frames")?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -322,16 +303,6 @@ where
         TopicBuilder::new(participant, topic_name)
     }
 
-    pub(crate) const fn from_existing(
-        inner: cyclonedds_sys::dds_entity_t,
-    ) -> std::mem::ManuallyDrop<Self> {
-        std::mem::ManuallyDrop::new(Self {
-            inner,
-            phantom_type: std::marker::PhantomData,
-            phantom_participant: std::marker::PhantomData,
-        })
-    }
-
     /// Sets the [`TopicListener`](crate::TopicListener) on this topic,
     /// replacing any previously set listener.
     ///
@@ -364,7 +335,7 @@ where
     pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
     where
         T: serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + Default,
-        L: AsRef<crate::TopicListener<T>>,
+        L: AsRef<crate::TopicListener<T, R>>,
     {
         listener
             .as_ref()
@@ -430,9 +401,32 @@ where
     pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
     where
         T: serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + Default,
-        L: AsRef<crate::TopicListener<T>>,
+        L: AsRef<crate::TopicListener<T, R>>,
     {
         self.set_listener(listener).map(|_err| self)
+    }
+}
+
+impl<T, R> Topic<'_, '_, T, R>
+where
+    T: crate::Topicable,
+    R: crate::representation::Representation,
+{
+    /// Wrap a topic entity this binding did not create, as a listener callback has
+    /// to when Cyclone DDS hands it the topic that fired.
+    ///
+    /// Deliberately outside the [`Layout`][crate::internal::layout::Layout]-bounded
+    /// operations: the representation is whatever the listener was declared with,
+    /// and a listener that is generic over it must still be able to build the
+    /// borrowed topic it passes on.
+    pub(crate) const fn from_existing(
+        inner: cyclonedds_sys::dds_entity_t,
+    ) -> std::mem::ManuallyDrop<Self> {
+        std::mem::ManuallyDrop::new(Self {
+            inner,
+            phantom_type: std::marker::PhantomData,
+            phantom_participant: std::marker::PhantomData,
+        })
     }
 }
 
@@ -615,6 +609,40 @@ mod tests {
         let result = topic.unset_listener().unwrap_err();
         assert_eq!(result, crate::Error::BadParameter);
         topic.inner = topic_id;
+    }
+
+    /// A listener carries the representation of the topic it is attached to.
+    ///
+    /// The topic a callback is handed comes from a bare entity handle, which says
+    /// nothing about how its samples are represented. Taking it from the listener's
+    /// own type instead is what keeps the callback from being given a
+    /// `Topic<T, Serialized>` for a topic that is really zero-copy — from which a
+    /// writer built inside the callback would hand Cyclone DDS the wrong thing.
+    #[test]
+    fn test_topic_listener_carries_the_representation() {
+        use crate::representation::ZeroCopy;
+        use crate::tests::topic::RawData;
+
+        fn on_zero_copy_topic(
+            _: &Topic<'_, '_, RawData, ZeroCopy>,
+            _: crate::status::InconsistentTopic,
+        ) {
+        }
+
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        // The callback takes a zero-copy topic, so only a zero-copy listener will
+        // accept it, and only a zero-copy topic will accept that listener.
+        let listener = crate::TopicListener::<RawData, ZeroCopy>::new()
+            .with_inconsistent_topic(on_zero_copy_topic);
+
+        let _ = Topic::<RawData, ZeroCopy>::builder(&participant, &topic_name)
+            .with_listener(listener)
+            .build()
+            .unwrap();
     }
 
     #[test]

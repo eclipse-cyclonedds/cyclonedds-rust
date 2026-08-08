@@ -44,16 +44,17 @@ pub fn dds_delete_listener(mut listener: std::ptr::NonNull<cyclonedds_sys::dds_l
     }
 }
 
-pub fn dds_listener_set_inconsistent_topic<T>(
+pub fn dds_listener_set_inconsistent_topic<T, R>(
     listener: &mut Listener,
-    callback: fn(&crate::Topic<'_, '_, T>, crate::status::InconsistentTopic),
+    callback: fn(&crate::Topic<'_, '_, T, R>, crate::status::InconsistentTopic),
 ) where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     unsafe {
         cyclonedds_sys::dds_lset_inconsistent_topic_arg(
             listener.inner.as_mut(),
-            Some(on_inconsistent_topic_shim::<T>),
+            Some(on_inconsistent_topic_shim::<T, R>),
             callback as *mut std::ffi::c_void,
             true,
         )
@@ -287,16 +288,17 @@ pub fn dds_listener_set_data_on_readers(
     .unwrap();
 }
 
-unsafe extern "C" fn on_inconsistent_topic_shim<T>(
+unsafe extern "C" fn on_inconsistent_topic_shim<T, R>(
     topic: cyclonedds_sys::dds_entity_t,
     status: cyclonedds_sys::dds_inconsistent_topic_status_t,
     arg: *mut std::ffi::c_void,
 ) where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     let topic = crate::Topic::from_existing(topic);
     let status = status.into();
-    let callback: fn(&crate::Topic<'_, '_, T>, crate::status::InconsistentTopic) =
+    let callback: fn(&crate::Topic<'_, '_, T, R>, crate::status::InconsistentTopic) =
         unsafe { std::mem::transmute(arg) };
     callback(&topic, status);
 }
@@ -513,11 +515,10 @@ mod tests {
         };
 
         unsafe {
-            on_inconsistent_topic_shim::<crate::tests::topic::Data>(
-                topic.inner,
-                status,
-                callback as *mut std::ffi::c_void,
-            );
+            on_inconsistent_topic_shim::<
+                crate::tests::topic::Data,
+                crate::representation::Serialized,
+            >(topic.inner, status, callback as *mut std::ffi::c_void);
         }
 
         assert!(*TRIGGERED.lock().unwrap());

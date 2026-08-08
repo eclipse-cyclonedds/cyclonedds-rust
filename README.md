@@ -280,7 +280,7 @@ and it is a compile error rather than a comment.
 
 ```rust
 use cyclonedds::builder::TopicBuilder;
-use cyclonedds::{FixedSize, Topicable, Writer};
+use cyclonedds::{FixedSize, Topicable, Writer, ZeroCopy};
 
 #[derive(Topicable, FixedSize, serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -291,11 +291,10 @@ struct Reading {
     value: f64,
 }
 
-// Opt the topic in. Without this the topic behaves like any other, because Rust
-// cannot tell from a `T: Topicable` bound alone whether `T` is also `FixedSize`.
-let topic = TopicBuilder::<Reading>::new(&participant, "Readings")
-    .with_zero_copy()
-    .build()?;
+// Name the representation to opt the topic in. Without it the topic behaves like
+// any other, because Rust cannot tell from a `T: Topicable` bound alone whether
+// `T` is also `FixedSize`. Naming `ZeroCopy` is what requires it.
+let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings").build()?;
 let writer = Writer::new(&topic)?;
 
 // Borrow shared memory and fill the sample in place.

@@ -89,7 +89,7 @@ where
     /// #     id: u32,
     /// #     pixels: [u8; 32],
     /// # }
-    /// # let topic = TopicBuilder::<Frame>::new(&participant, "Frames").with_zero_copy().build()?;
+    /// # let topic = TopicBuilder::<Frame, cyclonedds::ZeroCopy>::new(&participant, "Frames").build()?;
     /// # let writer = Writer::new(&topic)?;
     /// let mut loan = writer.loan()?;
     ///
@@ -243,7 +243,7 @@ where
     ///
     /// ```
     /// # use cyclonedds::builder::TopicBuilder;
-    /// # use cyclonedds::{Domain, Participant, Reader, Topicable, Writer};
+    /// # use cyclonedds::{Domain, Participant, Reader, Topicable, Writer, ZeroCopy};
     /// # let domain = Domain::default();
     /// # let participant = Participant::new(&domain)?;
     /// # #[derive(
@@ -257,8 +257,7 @@ where
     /// #     sequence: u32,
     /// #     value: f64,
     /// # }
-    /// # let topic = TopicBuilder::<Reading>::new(&participant, "Readings")
-    /// #     .with_zero_copy()
+    /// # let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings")
     /// #     .build()?;
     /// # let reader = Reader::new(&topic)?;
     /// # let writer = Writer::new(&topic)?;

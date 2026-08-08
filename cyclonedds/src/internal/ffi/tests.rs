@@ -2,6 +2,7 @@ use super::*;
 use crate::Topicable;
 use crate::representation::{Serialized, ZeroCopy};
 use crate::sample::SampleOrKeyInner;
+use crate::tests::topic::RawData;
 
 unsafe extern "C" fn sertype_free_mock(_: *mut cyclonedds_sys::ddsi_sertype) {}
 
@@ -2366,43 +2367,6 @@ fn test_sertype_ops_get_serialized_size_rejects_bad_input() {
 
     crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
     let _ = Box::into_raw(sertype);
-}
-
-/// A topic type laid out so Cyclone DDS may move it as raw memory.
-///
-/// `#[repr(C)]`, 16 bytes with no padding, valid for every bit pattern, 8-byte
-/// aligned.
-#[derive(
-    serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash,
-)]
-#[repr(C)]
-pub struct RawData {
-    pub id: u32,
-    pub sequence: u32,
-    pub payload: [u8; 8],
-}
-
-// NOTE: hand-written rather than derived because `derive(FixedSize)` emits
-// `::cyclonedds::` paths, which do not resolve from within this crate. The derive
-// itself is exercised from `tests/psmx.rs`, which is a separate crate.
-//
-// SAFETY: `repr(C)`, only integers and a byte array, so no padding, no
-// indirection, valid for every bit pattern, and 4-byte aligned.
-unsafe impl crate::topicable::FixedSize for RawData {}
-
-impl crate::Topicable for RawData {
-    type Key = u32;
-
-    fn from_key(key: &Self::Key) -> Self {
-        Self {
-            id: *key,
-            ..Default::default()
-        }
-    }
-
-    fn as_key(&self) -> Self::Key {
-        self.id
-    }
 }
 
 /// Build a sertype for [`RawData`] in the raw representation.

@@ -1078,7 +1078,7 @@ where
     /// Borrows memory from this writer to build a sample in place.
     ///
     /// On a topic that opted into zero-copy with
-    /// [`TopicBuilder::with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy),
+    /// [`ZeroCopy`](crate::representation::ZeroCopy) representation,
     /// and on a domain with a shared-memory PSMX interface, the returned
     /// [`Loan`] *is* the shared memory readers on this machine will look at, so
     /// the sample reaches them without being copied or serialized. Otherwise
@@ -1098,7 +1098,7 @@ where
     ///
     /// ```
     /// # use cyclonedds::builder::TopicBuilder;
-    /// # use cyclonedds::{Domain, Participant, Writer};
+    /// # use cyclonedds::{Domain, Participant, Writer, ZeroCopy};
     /// # let domain = Domain::default();
     /// # let participant = Participant::new(&domain)?;
     /// # #[derive(
@@ -1112,9 +1112,7 @@ where
     /// #     sequence: u32,
     /// #     value: f64,
     /// # }
-    /// let topic = TopicBuilder::<Reading>::new(&participant, "Readings")
-    ///     .with_zero_copy()
-    ///     .build()?;
+    /// let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings").build()?;
     /// let writer = Writer::new(&topic)?;
     ///
     /// let mut loan = writer.loan()?;
@@ -1150,7 +1148,7 @@ where
     /// #     sequence: u32,
     /// #     value: f64,
     /// # }
-    /// // No `with_zero_copy`, so this is a `Topic<Reading, Serialized>`.
+    /// // No `ZeroCopy`, so this is a `Topic<Reading, Serialized>`.
     /// let topic = Topic::<Reading>::new(&participant, "Readings")?;
     /// let writer = Writer::new(&topic)?;
     ///

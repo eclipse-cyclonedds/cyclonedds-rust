@@ -131,7 +131,7 @@ pub trait Topicable:
 ///
 /// A [`Topicable`] that is also [`FixedSize`] is automatically a
 /// [`FixedSizeTopic`], which is what
-/// [`TopicBuilder::with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy)
+/// [`ZeroCopy`](crate::representation::ZeroCopy) representation
 /// requires.
 ///
 /// # What is implemented
@@ -278,7 +278,7 @@ unsafe impl<T, const N: usize> FixedSize for [T; N] where T: FixedSize {}
 /// follows.
 ///
 /// Implementing it changes nothing on its own. Opt a topic in with
-/// [`TopicBuilder::with_zero_copy`](crate::builder::TopicBuilder::with_zero_copy),
+/// [`ZeroCopy`](crate::representation::ZeroCopy) representation,
 /// then borrow buffers with [`Writer::loan`](crate::Writer::loan).
 ///
 /// # Examples

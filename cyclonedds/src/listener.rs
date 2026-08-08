@@ -209,14 +209,18 @@ type ReaderNotification<T, R> = fn(&crate::Reader<'_, '_, '_, T, R>);
 /// A [`WriterListener`] callback: the writer that fired, and the status it fired
 /// with.
 type WriterCallback<T, R, S> = fn(&crate::Writer<'_, '_, '_, T, R>, S);
+/// A [`TopicListener`] callback: the topic that fired, and the status it fired
+/// with.
+type TopicCallback<T, R, S> = fn(&crate::Topic<'_, '_, T, R>, S);
 
 /// Listener attached to a [`Topic<T>`](crate::Topic<T>).
 #[derive(Debug, Clone, Copy)]
-pub struct TopicListener<T>
+pub struct TopicListener<T, R = crate::representation::Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
-    inconsistent_topic: Option<fn(&crate::Topic<'_, '_, T>, InconsistentTopic)>,
+    inconsistent_topic: Option<TopicCallback<T, R, InconsistentTopic>>,
 }
 
 /// Listener attached to a [`Subscriber`](crate::Subscriber).
@@ -279,9 +283,10 @@ where
     publication_matched: Option<WriterCallback<T, R, PublicationMatched>>,
 }
 
-impl<T> Default for TopicListener<T>
+impl<T, R> Default for TopicListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn default() -> Self {
         Self {
@@ -416,9 +421,10 @@ impl AsFfi for Listener {
     }
 }
 
-impl<T> TopicListener<T>
+impl<T, R> TopicListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`TopicListener<T>`] with no callbacks registered.
     ///
@@ -468,7 +474,7 @@ where
     #[must_use]
     pub fn with_inconsistent_topic(
         mut self,
-        callback: fn(&crate::Topic<'_, '_, T>, InconsistentTopic),
+        callback: TopicCallback<T, R, InconsistentTopic>,
     ) -> Self {
         self.inconsistent_topic = Some(callback);
         self
@@ -482,14 +488,16 @@ where
     }
 }
 
-impl<T> AsFfi for TopicListener<T>
+impl<T, R> AsFfi for TopicListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     type Target<'a>
         = Result<ffi::Listener>
     where
-        T: 'a;
+        T: 'a,
+        R: 'a;
 
     #[inline]
     fn as_ffi(&self) -> Self::Target<'_> {
@@ -1148,11 +1156,12 @@ impl AsRef<PublisherListener> for PublisherListener {
         self
     }
 }
-impl<T> AsRef<TopicListener<T>> for TopicListener<T>
+impl<T, R> AsRef<TopicListener<T, R>> for TopicListener<T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
-    fn as_ref(&self) -> &TopicListener<T> {
+    fn as_ref(&self) -> &TopicListener<T, R> {
         self
     }
 }
