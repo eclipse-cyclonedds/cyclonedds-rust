@@ -164,17 +164,77 @@ fn test_unimplemented_sertype_ops() {
     assert_eq!(result, std::ptr::null_mut());
 }
 
+/// `to_ser` copies a slice of the serialized form out, header included.
+///
+/// This is how Cyclone DDS fills a PSMX loan from an existing serdata
+/// (`dds_writer_psmx_loan_from_serdata`): four bytes of encapsulation header
+/// first, then the payload. Leaving it unimplemented published whatever bytes the
+/// loan already held, and only to peers reached through PSMX — so nothing local
+/// ever noticed.
 #[test]
-fn test_unimplemented_serdata_ops() {
+fn test_serdata_ops_to_ser_copies_the_serialized_form() {
+    let sertype = test_sertype();
+
+    let sample = SampleOrKeyInner::new_sample(crate::tests::topic::Data {
+        x: 3,
+        y: -4,
+        message: "to_ser".to_owned(),
+    });
+    let serdata = Box::new(crate::internal::serdata::Serdata::new(&sertype, sample));
+    let expected = serdata.serialized().unwrap().to_vec();
+    let serdata_ptr = std::ptr::from_ref(&serdata.inner);
+
+    // The header, as `dds_writer_psmx_loan_from_serdata` asks for it.
+    let mut header = [0xaa_u8; 4];
     unsafe {
         serdata_ops::to_ser::<crate::tests::topic::Data>(
-            std::ptr::null(),
+            serdata_ptr,
             0,
-            0,
-            std::ptr::null_mut(),
+            header.len(),
+            header.as_mut_ptr().cast(),
         );
     }
+    assert_eq!(
+        header,
+        expected[..4],
+        "the encapsulation header must come back"
+    );
 
+    // Then the payload, at the offset that follows it.
+    let mut payload = vec![0xaa_u8; expected.len() - 4];
+    unsafe {
+        serdata_ops::to_ser::<crate::tests::topic::Data>(
+            serdata_ptr,
+            4,
+            payload.len(),
+            payload.as_mut_ptr().cast(),
+        );
+    }
+    assert_eq!(payload, expected[4..], "the payload must come back");
+
+    // A range past the end writes nothing rather than reading out of bounds.
+    let mut untouched = [0xaa_u8; 8];
+    unsafe {
+        serdata_ops::to_ser::<crate::tests::topic::Data>(
+            serdata_ptr,
+            expected.len(),
+            untouched.len(),
+            untouched.as_mut_ptr().cast(),
+        );
+    }
+    assert_eq!(
+        untouched, [0xaa; 8],
+        "an out-of-range request must be a no-op"
+    );
+
+    let mut sertype = sertype;
+    crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
+    let _ = Box::into_raw(sertype);
+    let _ = Box::into_raw(serdata);
+}
+
+#[test]
+fn test_unimplemented_serdata_ops() {
     let result = unsafe {
         serdata_ops::from_loaned_sample::<crate::tests::topic::Data, Serialized>(
             std::ptr::null(),

@@ -366,19 +366,43 @@ where
     into_serdata(sertype, sample)
 }
 
-/// TODO Unimplemented.
+/// Copy `size` bytes of this serdata's serialized form, from `offset`, into
+/// `buffer`.
+///
+/// Cyclone DDS uses this to put an existing serdata into a buffer it owns, which
+/// on the PSMX write path means a loan: `dds_writer_psmx_loan_from_serdata` asks
+/// for the four byte encapsulation header and then for the payload. Offsets are
+/// into the same bytes [`get_size`] reports the length of, header included.
+///
+/// Leaving this unimplemented is not harmless. The header goes into an
+/// uninitialized local and the payload into loaned memory, so a writer would
+/// publish whichever bytes happened to be there — and only to peers reached
+/// through PSMX, which is why it goes unnoticed until a second process reads it.
+///
 /// ## Safety
+/// - `serdata` must be a non-null pointer to a fully-initialized [`Serdata`].
+/// - `buffer` must be valid for writes of `size` bytes.
 pub unsafe extern "C" fn to_ser<T>(
     serdata: *const cyclonedds_sys::ddsi_serdata,
-    a: usize,
-    b: usize,
-    c: *mut std::ffi::c_void,
-) {
-    let args = (serdata, a, b, c);
-    eprintln!(
-        "serdata_ops::to_ser<{}>({args:?})",
-        std::any::type_name::<T>()
-    );
+    offset: usize,
+    size: usize,
+    buffer: *mut std::ffi::c_void,
+) where
+    T: crate::Topicable,
+{
+    let serdata = unsafe { &*serdata.cast::<Serdata<T>>() };
+
+    let Ok(serialized) = serdata.serialized() else {
+        return;
+    };
+
+    let Some(source) = serialized.get(offset..).and_then(|bytes| bytes.get(..size)) else {
+        return;
+    };
+
+    // SAFETY: guaranteed by the caller to be valid for `size` bytes, and the
+    // source is a distinct allocation owned by the serdata.
+    unsafe { std::ptr::copy_nonoverlapping(source.as_ptr(), buffer.cast::<u8>(), size) };
 }
 
 /// Write the serialized bytes of a sample to the provided
