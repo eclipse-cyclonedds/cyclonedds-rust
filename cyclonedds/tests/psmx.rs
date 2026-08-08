@@ -185,18 +185,23 @@ where
     T::Key: cyclonedds::cdr_bounds::CdrBounds,
     R: dds::representation::Representation,
 {
+    await_sample(|| !reader.peek().expect("failed to peek the reader").is_empty());
+
+    let samples = reader.take().expect("failed to take from the reader");
+    assert_eq!(samples.len(), 1, "expected exactly one sample");
+    assert!(*samples[0] == *expected, "the sample did not round-trip");
+}
+
+/// Wait until `arrived` reports a sample, or give up.
+fn await_sample(mut arrived: impl FnMut() -> bool) {
     let deadline = std::time::Instant::now() + TIMEOUT;
-    while reader.peek().expect("failed to peek the reader").is_empty() {
+    while !arrived() {
         assert!(
             std::time::Instant::now() < deadline,
             "no sample arrived over PSMX within {TIMEOUT:?}"
         );
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-
-    let samples = reader.take().expect("failed to take from the reader");
-    assert_eq!(samples.len(), 1, "expected exactly one sample");
-    assert!(*samples[0] == *expected, "the sample did not round-trip");
 }
 
 /// Wait for exactly one loaned sample, without draining the reader.
@@ -208,21 +213,18 @@ where
     T::Key: cyclonedds::cdr_bounds::CdrBounds,
     R: dds::representation::Representation,
 {
-    let deadline = std::time::Instant::now() + TIMEOUT;
-    loop {
-        let samples = reader
-            .take_loaned()
-            .expect("failed to take loaned samples from the reader");
-        if !samples.is_empty() {
-            assert_eq!(samples.len(), 1, "expected exactly one sample");
-            return samples;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no sample arrived over PSMX within {TIMEOUT:?}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+    await_sample(|| {
+        !reader
+            .peek_loaned()
+            .expect("failed to peek the reader")
+            .is_empty()
+    });
+
+    let samples = reader
+        .take_loaned()
+        .expect("failed to take loaned samples from the reader");
+    assert_eq!(samples.len(), 1, "expected exactly one sample");
+    samples
 }
 
 /// A keyed topic type whose in-memory representation may be shared verbatim.
@@ -736,14 +738,7 @@ fn psmx_zero_copy_read_loaned_can_borrow_one_sample_twice() -> dds::Result<()> {
     writer.write_loaned(loan)?;
 
     // Wait without consuming, so the sample stays available to read again.
-    let deadline = std::time::Instant::now() + TIMEOUT;
-    while reader.peek_loaned()?.is_empty() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no sample arrived over PSMX within {TIMEOUT:?}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+    await_sample(|| !reader.peek_loaned().expect("failed to peek").is_empty());
 
     let first = reader.read_loaned()?;
     let second = reader.read_loaned()?;
@@ -784,14 +779,7 @@ fn psmx_peek_loaned_leaves_the_sample_unread() -> dds::Result<()> {
     };
     writer.write(&expected)?;
 
-    let deadline = std::time::Instant::now() + TIMEOUT;
-    while reader.peek_loaned()?.is_empty() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no sample arrived over PSMX within {TIMEOUT:?}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+    await_sample(|| !reader.peek_loaned().expect("failed to peek").is_empty());
 
     // Peeking repeatedly keeps returning it, and leaves it unread.
     for _ in 0..3 {
