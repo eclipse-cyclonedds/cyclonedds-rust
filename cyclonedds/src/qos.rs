@@ -43,6 +43,7 @@ pub struct QoS {
     liveliness: Option<policy::Liveliness>,
     time_based_filter: Option<policy::TimeBasedFilter>,
     partition: Option<policy::Partition>,
+    psmx_instances: Option<policy::PsmxInstances>,
     reliability: Option<policy::Reliability>,
     transport_priority: Option<policy::TransportPriority>,
     lifespan: Option<policy::Lifespan>,
@@ -75,6 +76,7 @@ impl std::default::Default for QoS {
             liveliness: Option::default(),
             time_based_filter: Option::default(),
             partition: Option::default(),
+            psmx_instances: Option::default(),
             reliability: Option::default(),
             transport_priority: Option::default(),
             lifespan: Option::default(),
@@ -371,6 +373,35 @@ impl QoS {
         self
     }
 
+    /// Sets the [`PsmxInstances`](policy::PsmxInstances) policy, selecting which
+    /// PSMX (shared memory) Instances an endpoint may use.
+    ///
+    /// # Panics
+    ///
+    /// Panics if more than [`PsmxInstances::MAX`](policy::PsmxInstances::MAX)
+    /// instances are supplied, or if any instance name is empty or contains an
+    /// interior null byte. Cyclone DDS silently discards the whole policy in
+    /// those cases, so failing loudly here is the difference between a clear
+    /// error and an endpoint quietly not using the transport you asked for.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::QoS;
+    /// use cyclonedds::qos::policy;
+    ///
+    /// let qos = QoS::new().with_psmx_instances(policy::PsmxInstances {
+    ///     instances: vec!["shm".to_string()],
+    /// });
+    /// ```
+    #[must_use]
+    pub fn with_psmx_instances(mut self, psmx_instances: policy::PsmxInstances) -> Self {
+        let instances = psmx_instances.as_ffi();
+        ffi::dds_qos_set_psmx_instances(&mut self.inner, &instances);
+        self.psmx_instances = Some(psmx_instances);
+        self
+    }
+
     /// Sets the [`Reliability`](policy::Reliability) policy.
     ///
     /// # Examples
@@ -664,6 +695,9 @@ mod tests {
         let entity_name = policy::EntityName {
             name: String::default(),
         };
+        let psmx_instances = policy::PsmxInstances {
+            instances: Vec::default(),
+        };
 
         let qos = QoS::new()
             .with_user_data(user_data.clone())
@@ -678,6 +712,7 @@ mod tests {
             .with_liveliness(liveliness)
             .with_time_based_filter(time_based_filter)
             .with_partition(partition.clone())
+            .with_psmx_instances(psmx_instances.clone())
             .with_reliability(reliability)
             .with_transport_priority(transport_priority)
             .with_lifespan(lifespan)
@@ -701,6 +736,7 @@ mod tests {
         assert_eq!(qos.liveliness, Some(liveliness));
         assert_eq!(qos.time_based_filter, Some(time_based_filter));
         assert_eq!(qos.partition, Some(partition));
+        assert_eq!(qos.psmx_instances, Some(psmx_instances));
         assert_eq!(qos.reliability, Some(reliability));
         assert_eq!(qos.transport_priority, Some(transport_priority));
         assert_eq!(qos.lifespan, Some(lifespan));
@@ -869,6 +905,49 @@ mod tests {
             partitions: vec!["A".to_string(), "\0".to_string()],
         };
         let _ = QoS::new().with_partition(partition.clone());
+    }
+
+    #[test]
+    fn test_qos_set_psmx_instances() {
+        let psmx_instances = policy::PsmxInstances {
+            instances: vec!["shm".to_string(), "iox".to_string()],
+        };
+        let qos = QoS::new().with_psmx_instances(psmx_instances.clone());
+        assert_eq!(qos.psmx_instances, Some(psmx_instances));
+
+        // An empty list is meaningful: it keeps the endpoint off PSMX entirely.
+        let psmx_instances = policy::PsmxInstances {
+            instances: Vec::new(),
+        };
+        let qos = QoS::new().with_psmx_instances(psmx_instances.clone());
+        assert_eq!(qos.psmx_instances, Some(psmx_instances));
+    }
+
+    #[test]
+    #[should_panic = "too many PSMX instances supplied"]
+    fn test_qos_set_psmx_instances_over_the_limit() {
+        let instances = (0..=policy::PsmxInstances::MAX)
+            .map(|index| format!("shm{index}"))
+            .collect();
+        let _ = QoS::new().with_psmx_instances(policy::PsmxInstances { instances });
+    }
+
+    #[test]
+    #[should_panic = "a PSMX instance name may not be empty"]
+    fn test_qos_set_psmx_instances_with_empty_name() {
+        let psmx_instances = policy::PsmxInstances {
+            instances: vec!["shm".to_string(), String::new()],
+        };
+        let _ = QoS::new().with_psmx_instances(psmx_instances);
+    }
+
+    #[test]
+    #[should_panic = "unable to safely create std::ffi::CString from PSMX instance name"]
+    fn test_qos_set_psmx_instances_with_invalid_name() {
+        let psmx_instances = policy::PsmxInstances {
+            instances: vec!["shm".to_string(), "\0".to_string()],
+        };
+        let _ = QoS::new().with_psmx_instances(psmx_instances);
     }
 
     #[test]
