@@ -14,6 +14,7 @@ The official Rust binding for [Eclipse Cyclone DDS][cyclonedds-github].
 - [Quick Start](#quick-start)
 - [Overview of DDS](#overview-of-dds)
 - [Example](#example)
+- [Shared memory (PSMX)](#shared-memory-psmx)
 - [Common footguns](#common-footguns)
 
 ## Quick Start
@@ -202,6 +203,122 @@ fn main() -> cyclonedds::Result<()> {
 }
 ```
 
+## Shared memory (PSMX)
+
+Cyclone DDS can hand data transfer off to a *Pub/Sub Message Exchange* (PSMX)
+plugin instead of sending it over the network, and shared memory is one such
+plugin. This is configured on the domain rather than in code, through a
+`PubSubMessageExchange` element:
+
+```rust
+use cyclonedds::{Domain, Participant, Topic, Writer};
+
+let config = r#"
+    <Domain>
+      <General>
+        <Interfaces>
+          <PubSubMessageExchange type="iox" config="INSTANCE_NAME=shm;" />
+        </Interfaces>
+      </General>
+    </Domain>"#;
+
+let domain = Domain::new_with_xml_config(0, config)?;
+```
+
+Cyclone DDS looks for the plugin in a library named `psmx_<type>` (overridable
+with a `library` attribute) and calls `<type>_create_psmx` in it. The
+iceoryx-backed plugin, `psmx_iox`, ships with Cyclone DDS but is built only when
+its dependencies are available, so check your installation before relying on it.
+
+A matched reader and writer use PSMX when both resolve to the same PSMX Instance
+*and* it reports the same locator at both ends — for shared memory, that means
+the same machine. Otherwise they fall back to the network transparently. To check
+that the configuration actually took effect, ask the endpoint:
+
+```rust
+let writer = Writer::new(&topic)?;
+
+if writer.is_shared_memory_available() {
+    // Samples written here can travel through shared memory.
+}
+```
+
+By default an endpoint may use every PSMX Instance configured on its domain that
+supports its topic type and `QoS`. Use the `PsmxInstances` policy to narrow that
+down, or to opt an endpoint out entirely with an empty list:
+
+```rust
+use cyclonedds::QoS;
+use cyclonedds::qos::policy;
+
+let restricted = QoS::new().with_psmx_instances(policy::PsmxInstances {
+    instances: vec!["shm".to_string()],
+});
+
+let opted_out = QoS::new().with_psmx_instances(policy::PsmxInstances {
+    instances: Vec::new(),
+});
+```
+
+By default this still serializes. Rust topic types are encoded through `serde`,
+so a sample is serialized by the writer and deserialized by the reader even when
+the route between them is shared memory. What you gain is skipping the network
+stack and its copies. To also skip the encoding, see below.
+
+### Zero-copy
+
+A topic can travel as raw memory instead of CDR, which removes the encoding and
+the copies entirely: the writer fills a buffer that *is* the shared memory readers
+look at.
+
+That requires a type whose in-memory representation can be shared verbatim with
+another process. Derive
+[`FixedSize`](https://docs.rs/eclipse-cyclonedds/latest/cyclonedds/trait.FixedSize.html)
+and the layout is checked for you: `#[repr(C)]`, every field's type shareable in
+turn, no padding, and alignment within what a loan guarantees. Break any of those
+and it is a compile error rather than a comment.
+
+```rust
+use cyclonedds::builder::TopicBuilder;
+use cyclonedds::{FixedSize, Topicable, Writer};
+
+#[derive(Topicable, FixedSize, serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default)]
+#[repr(C)]
+struct Reading {
+    #[dds(key)]
+    sensor_id: u32,
+    sequence: u32,
+    value: f64,
+}
+
+// Opt the topic in. Without this the topic behaves like any other, because Rust
+// cannot tell from a `T: Topicable` bound alone whether `T` is also `FixedSize`.
+let topic = TopicBuilder::<Reading>::new(&participant, "Readings")
+    .with_zero_copy()
+    .build()?;
+let writer = Writer::new(&topic)?;
+
+// Borrow shared memory and fill the sample in place.
+let mut loan = writer.loan()?;
+loan.write(Reading {
+    sensor_id: 1,
+    sequence: 7,
+    value: 21.5,
+});
+writer.write_loaned(loan)?;
+```
+
+For a large payload, prefer `loan.as_uninit_mut()` over `loan.write(..)`: the
+former writes the payload straight into shared memory, while the latter builds
+the sample first and then moves it in.
+
+Both ends must opt in — a reader only accepts a raw payload on a topic that
+agreed to the raw representation. Endpoints that did not opt in still interoperate
+normally, exchanging CDR as before, and a zero-copy topic falls back to CDR
+whenever PSMX is not usable for a given pair. `Writer::loan` also works with no
+PSMX interface configured, borrowing heap memory instead; the programming model is
+the same, the benefit is not.
+
 ## Common footguns
 
 ### QoS mismatch
@@ -271,6 +388,27 @@ Cyclone DDS also includes a `peek` call which reads without updating any sample
 or view state, so repeated peeks always see the same samples regardless of state
 masks. Use it for non-destructive inspection when state transitions are
 undesirable.
+
+### Shared memory silently not being used
+
+Configuring a `PubSubMessageExchange` element is not enough on its own. The plugin
+library has to be loadable, both ends have to resolve to the same PSMX Instance,
+and its locators have to match. When any of that does not hold, Cyclone DDS falls
+back to the network without complaint and the only symptom is that you do not get
+the performance you expected. Check
+[`is_shared_memory_available`](https://docs.rs/eclipse-cyclonedds/latest/cyclonedds/struct.Writer.html#method.is_shared_memory_available)
+on both endpoints rather than assuming.
+
+Note also that shared memory removes network overhead but not serialization unless
+the topic opted into zero-copy; see [Shared memory (PSMX)](#shared-memory-psmx).
+
+### Implementing `FixedSize` by hand
+
+Prefer the derive. It checks `repr(C)`, that every field is itself shareable, the
+absence of padding, and the alignment bound — the whole contract except that the
+type holds no raw pointers, which nothing can check. Asserting it by hand for a
+type that does not qualify is undefined behaviour, and it may only show up in
+whichever process *reads* the sample.
 
 ## Minimum supported Rust version (MSRV)
 
