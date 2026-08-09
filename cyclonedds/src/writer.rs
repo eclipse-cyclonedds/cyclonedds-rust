@@ -1080,13 +1080,13 @@ where
     /// On a topic that opted into zero-copy with
     /// [`ZeroCopy`](crate::representation::ZeroCopy) representation,
     /// and on a domain with a shared-memory PSMX interface, the returned
-    /// [`Loan`] *is* the shared memory readers on this machine will look at, so
+    /// [`Loan`](crate::Loan) *is* the shared memory readers on this machine will look at, so
     /// the sample reaches them without being copied or serialized. Otherwise
     /// Cyclone DDS falls back to ordinary heap memory, which gives the same
     /// programming model without the benefit.
     ///
     /// Publish the result with [`write_loaned`](Writer::write_loaned). Dropping
-    /// the [`Loan`] instead hands the memory back unused.
+    /// the [`Loan`](crate::Loan) instead hands the memory back unused.
     ///
     /// # Errors
     ///
