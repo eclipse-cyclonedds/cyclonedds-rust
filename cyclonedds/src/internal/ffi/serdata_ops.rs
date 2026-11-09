@@ -70,7 +70,7 @@ where
     T: crate::Topicable,
 {
     fn deserialize<'a, T: serde::Deserialize<'a>>(
-        buffer: &[u8],
+        buffer: &'a [u8],
     ) -> Result<(T, usize), cdr_encoding::Error> {
         match buffer.split_at_checked(DDSI_RTPS_HEADER_SIZE) {
             Some((header, bytes)) => match header {

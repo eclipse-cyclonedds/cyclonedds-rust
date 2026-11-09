@@ -20,7 +20,7 @@ name = "cyclonedds_sys"
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.72.1"
+bindgen = "0.73.2"
 cmake = { version = "0.1.58", optional = true }
 filetime = { version = "0.2.29", optional = true }
 tempfile = { version = "3.27.0", optional = true }
