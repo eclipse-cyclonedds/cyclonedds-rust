@@ -68,8 +68,11 @@ jobs:
           nix develop -c cargo test --doc --release
 
       - name: check coverage (with branch coverage)
-        run: nix develop .#nightly -c cargo llvm-cov nextest --branch --fail-under-functions 95
-          --fail-under-lines 95 --fail-under-regions 95
+        run: |
+          # Remove cached artifacts to avoid mixing coverage from different toolchains.
+          rm -rf target/llvm-cov-target
+          nix develop .#nightly -c cargo llvm-cov nextest --branch --fail-under-functions 95 \
+            --fail-under-lines 95 --fail-under-regions 95
       - name: run cargo deny
         run: nix develop -c cargo deny check
 
