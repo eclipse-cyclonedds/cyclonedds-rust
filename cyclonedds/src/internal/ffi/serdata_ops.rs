@@ -545,7 +545,7 @@ where
 
     // The formatting here is best-effort so ignore a potential error when
     // writing.
-    let _ = write!(cursor, "{:#?}", &*serdata);
+    let _ = write!(cursor, "{:#?}", *serdata);
 
     // Ensure that whatever was written is null-terminated.
     let written = cursor

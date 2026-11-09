@@ -170,6 +170,7 @@ where
             .map(|listener| listener.as_ffi())
             .transpose()
             .and_then(|listener| {
+                #[allow(clippy::mut_mut)]
                 let inner = ffi::dds_create_topic(
                     self.participant.inner,
                     &name,
