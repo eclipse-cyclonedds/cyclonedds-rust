@@ -111,6 +111,14 @@ jobs:
           nix_conf: |
             keep-env-derivations = true
             keep-outputs = true
+
+      - name: create cargo home
+        run: |
+          # Create the parent as the runner before cache extraction. The cache extraction
+          # restore permissions on the explicit dirs that are recorded but creates parents
+          # dirs as root which was causing issues with `cargo deny` on macOS.
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
+
       - name: cache nix store
         uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
         with:
