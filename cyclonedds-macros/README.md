@@ -38,7 +38,7 @@ For normal DDS applications, add the main binding:
 
 ```toml
 [dependencies]
-eclipse-cyclonedds = "0.0.4"
+eclipse-cyclonedds = "11.1.0"
 serde = { version = "1", features = ["derive"] }
 ```
 
