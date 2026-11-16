@@ -185,13 +185,13 @@ pub fn dds_qos_set_user_data(qos: &mut cyclonedds_sys::dds_qos_t, user_data: &[u
 
 pub fn dds_qos_set_topic_data(qos: &mut cyclonedds_sys::dds_qos_t, topic_data: &[u8]) {
     unsafe {
-        cyclonedds_sys::dds_qset_userdata(qos, topic_data.as_ptr().cast(), topic_data.len());
+        cyclonedds_sys::dds_qset_topicdata(qos, topic_data.as_ptr().cast(), topic_data.len());
     }
 }
 
 pub fn dds_qos_set_group_data(qos: &mut cyclonedds_sys::dds_qos_t, group_data: &[u8]) {
     unsafe {
-        cyclonedds_sys::dds_qset_userdata(qos, group_data.as_ptr().cast(), group_data.len());
+        cyclonedds_sys::dds_qset_groupdata(qos, group_data.as_ptr().cast(), group_data.len());
     }
 }
 
