@@ -367,11 +367,21 @@ where
     let serdata = unsafe { &mut *(serdata as *mut Serdata<T>) };
     let container = unsafe { &mut *container };
 
+    // Size is the size of the fragment so the total serialized data is
+    // at least offset + size.
+    let Some(end) = offset.checked_add(size) else {
+        return std::ptr::null_mut();
+    };
+
     serdata
-        .serialized_with_size_hint(size)
+        .serialized_with_size_hint(end)
         .ok()
         .and_then(|serialized| {
-            let slice = serialized.get(offset..)?;
+            // SAFETY: checked_add guarantees offset <= end, and the size hint
+            // pads the serialized buffer to at least end bytes.
+            let slice = serialized
+                .get(offset..end)
+                .expect("serialized buffer must contain the requested fragment");
             container.iov_base = slice.as_ptr() as *mut _;
 
             let iov_len = slice.len();

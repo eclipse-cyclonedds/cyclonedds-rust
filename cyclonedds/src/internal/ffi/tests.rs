@@ -1343,7 +1343,7 @@ fn test_serdata_ops_from_ser_iov() {
     let result = unsafe {
         serdata_ops::to_ser_ref::<crate::tests::topic::Data>(
             &raw mut serdata.inner,
-            1000,
+            usize::MAX,
             22,
             &raw mut container,
         )
@@ -1373,6 +1373,71 @@ fn test_serdata_ops_from_ser_iov() {
     };
 
     assert_ne!(result, std::ptr::null_mut());
+
+    crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
+    let _ = Box::into_raw(sertype);
+}
+
+#[test]
+fn test_to_ser_ref_fragments() {
+    use crate::internal::traits::CdrHeader;
+
+    const FRAGMENT_SIZE: usize = 1344;
+
+    let name = std::ffi::CString::new("FragmentValidation").unwrap();
+    let mut sertype = Box::new(
+        crate::internal::sertype::Sertype::<crate::tests::topic::Data>::new(
+            &name,
+            crate::tests::topic::Data::IS_KEYED,
+        ),
+    );
+
+    for message_size in [41 * 1024, 164 * 1024] {
+        let sample = crate::tests::topic::Data {
+            x: 101,
+            y: 202,
+            message: "x".repeat(message_size),
+        };
+        let mut expected = byteorder::NativeEndian::cdr_header().to_vec();
+        expected.extend(cdr_encoding::to_vec::<_, byteorder::NativeEndian>(&sample).unwrap());
+        assert_ne!(expected.len() % 4, 0);
+        expected.resize(expected.len().next_multiple_of(4), 0);
+
+        // Exercise padding both before and after the serialized buffer is cached.
+        for last_fragment_first in [false, true] {
+            let mut serdata = Box::new(crate::internal::serdata::Serdata::new(
+                &sertype,
+                SampleOrKeyInner::new_sample(sample.clone()),
+            ));
+            let mut offsets: Vec<_> = (0..expected.len()).step_by(FRAGMENT_SIZE).collect();
+            if last_fragment_first {
+                offsets.reverse();
+            }
+            for offset in offsets {
+                let size = FRAGMENT_SIZE.min(expected.len() - offset);
+                let mut container = cyclonedds_sys::ddsrt_iovec_t::default();
+                let result = unsafe {
+                    serdata_ops::to_ser_ref::<crate::tests::topic::Data>(
+                        &raw mut serdata.inner,
+                        offset,
+                        size,
+                        &raw mut container,
+                    )
+                };
+                assert!(!result.is_null());
+                assert_eq!(container.iov_len as usize, size);
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(container.iov_base.cast::<u8>(), size) };
+                assert_eq!(bytes, &expected[offset..offset + size]);
+                unsafe {
+                    serdata_ops::to_ser_unref::<crate::tests::topic::Data>(
+                        result,
+                        &raw const container,
+                    );
+                }
+            }
+        }
+    }
 
     crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
     let _ = Box::into_raw(sertype);
