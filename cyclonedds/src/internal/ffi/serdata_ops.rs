@@ -66,7 +66,14 @@ where
     T: serde::Deserialize<'de> + Default,
     BO: byteorder::ByteOrder,
 {
-    let mut value = Box::<T>::default();
+    // Keeping this call out of line lets the optimizer use the box allocation
+    // as the return destination for a large default value.
+    #[inline(never)]
+    fn default_value<T: Default>() -> T {
+        T::default()
+    }
+
+    let mut value = Box::write(Box::new_uninit(), default_value::<T>());
     let mut decoder = cdr_encoding::CdrDeserializer::<BO>::new(bytes);
     T::deserialize_in_place(&mut decoder, &mut value)?;
     Ok(value)
