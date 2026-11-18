@@ -61,6 +61,17 @@ where
     .expect("serialized data out of bounds")
 }
 
+fn deserialize_boxed<'de, T, BO>(bytes: &'de [u8]) -> Result<Box<T>, cdr_encoding::Error>
+where
+    T: serde::Deserialize<'de> + Default,
+    BO: byteorder::ByteOrder,
+{
+    let mut value = Box::<T>::default();
+    let mut decoder = cdr_encoding::CdrDeserializer::<BO>::new(bytes);
+    T::deserialize_in_place(&mut decoder, &mut value)?;
+    Ok(value)
+}
+
 pub(crate) fn from_ser_buffer<T>(
     sertype: &crate::internal::sertype::Sertype<T>,
     kind: crate::internal::serdata::Kind,
@@ -69,44 +80,31 @@ pub(crate) fn from_ser_buffer<T>(
 where
     T: crate::Topicable,
 {
-    fn deserialize<'a, T: serde::Deserialize<'a>>(
-        buffer: &'a [u8],
-    ) -> Result<(T, usize), cdr_encoding::Error> {
-        match buffer.split_at_checked(DDSI_RTPS_HEADER_SIZE) {
-            Some((header, bytes)) => match header {
-                [0x0, 0x0, ..] => cdr_encoding::from_bytes::<T, byteorder::BigEndian>(bytes),
-                [0x0, 0x1, ..] => cdr_encoding::from_bytes::<T, byteorder::LittleEndian>(bytes),
-                _ => Err(cdr_encoding::Error::Message(format!(
-                    "could not determine endianness from CDR header: {header:?}"
-                ))),
-            },
-            None => Err(cdr_encoding::Error::Message(format!(
-                "deserialization failed: byteslice too short to contain valid CDR header: \
-                 {buffer:?}"
-            ))),
+    fn deserialize<T: crate::Topicable, BO: byteorder::ByteOrder>(
+        kind: crate::internal::serdata::Kind,
+        bytes: &[u8],
+    ) -> Result<SampleOrKey<T>, cdr_encoding::Error> {
+        match kind {
+            crate::internal::serdata::Kind::Key => {
+                deserialize_boxed::<T::Key, BO>(bytes).map(SampleOrKey::from_boxed_key)
+            }
+            crate::internal::serdata::Kind::Data => {
+                deserialize_boxed::<T, BO>(bytes).map(SampleOrKey::from_boxed_sample)
+            }
         }
     }
 
-    match kind {
-        crate::internal::serdata::Kind::Key => {
-            if let Ok((key, _)) = deserialize::<T::Key>(buffer) {
-                let key = SampleOrKey::new_key(key);
-                let serdata = Box::new(crate::internal::serdata::Serdata::new(sertype, key));
-                Box::into_raw(serdata).cast()
-            } else {
-                std::ptr::null_mut()
-            }
-        }
-        crate::internal::serdata::Kind::Data => {
-            if let Ok((data, _)) = deserialize::<T>(buffer) {
-                let sample = SampleOrKey::new_sample(data);
-                let serdata = Box::new(crate::internal::serdata::Serdata::new(sertype, sample));
-                Box::into_raw(serdata).cast()
-            } else {
-                std::ptr::null_mut()
-            }
-        }
-    }
+    let Some((header, bytes)) = buffer.split_at_checked(DDSI_RTPS_HEADER_SIZE) else {
+        return std::ptr::null_mut();
+    };
+    let sample = match header {
+        [0x0, 0x0, ..] => deserialize::<T, byteorder::BigEndian>(kind, bytes),
+        [0x0, 0x1, ..] => deserialize::<T, byteorder::LittleEndian>(kind, bytes),
+        _ => return std::ptr::null_mut(),
+    };
+    sample.map_or(std::ptr::null_mut(), |sample| {
+        Box::into_raw(Box::new(Serdata::new(sertype, sample))).cast()
+    })
 }
 
 fn copy_from_fragment(fragment_chain: &cyclonedds_sys::ddsi_rdata, size: usize) -> Option<Vec<u8>> {
@@ -257,12 +255,13 @@ where
         std::ptr::null_mut()
     } else {
         // The key hash is just the big-endian CDR serialized form of the key.
-        if let Ok((key, _)) = cdr_encoding::from_bytes::<_, byteorder::BigEndian>(&keyhash.value) {
-            let serdata = Box::new(Serdata::new(sertype, SampleOrKey::<T>::new_key(key)));
-            Box::into_raw(serdata).cast()
-        } else {
-            std::ptr::null_mut()
-        }
+        deserialize_boxed::<T::Key, byteorder::BigEndian>(&keyhash.value).map_or(
+            std::ptr::null_mut(),
+            |key| {
+                let serdata = Box::new(Serdata::new(sertype, SampleOrKey::from_boxed_key(key)));
+                Box::into_raw(serdata).cast()
+            },
+        )
     }
 }
 

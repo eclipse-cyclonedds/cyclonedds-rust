@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn test_keyhash() {
-        #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+        #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Default)]
         struct Data {
             x: i32,
         }

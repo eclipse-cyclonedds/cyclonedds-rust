@@ -158,9 +158,9 @@ impl ToTokens for TopicableAttributes {
 /// Derives `Topicable` for a named-field struct.
 ///
 /// Fields annotated with `#[dds(key)]` are collected into a generated
-/// `<Name>Key` struct that implements `CdrBounds`. Structs with no
-/// `#[dds(key)]` fields use [`()`](primitive@unit) as their key type and must
-/// implement [`Default`].
+/// `<Name>Key` struct that implements `CdrBounds` and [`Default`]. Structs
+/// with no `#[dds(key)]` fields use [`()`](primitive@unit) as their key type.
+/// The topic struct must also implement [`Default`].
 ///
 /// An optional `#[dds(type_name = "...")]` attribute overrides the DDS type
 /// name used for topic matching. Without it, the Rust type name is used.

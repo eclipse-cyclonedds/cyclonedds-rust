@@ -53,7 +53,11 @@
 /// }
 /// ```
 pub trait Topicable:
-    serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + std::fmt::Debug
+    serde::ser::Serialize
+    + serde::de::DeserializeOwned
+    + std::default::Default
+    + std::clone::Clone
+    + std::fmt::Debug
 {
     /// The key type that uniquely identifies an instance of this topic.
     ///
@@ -66,6 +70,7 @@ pub trait Topicable:
     /// computing keyhashes.
     type Key: serde::ser::Serialize
         + serde::de::DeserializeOwned
+        + std::default::Default
         + std::clone::Clone
         + std::fmt::Debug
         + std::cmp::PartialEq

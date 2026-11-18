@@ -168,6 +168,9 @@
     )
 )]
 
+// Enable field-by-field deserialization for derived topic types.
+use serde_derive as _;
+
 pub mod cdr_bounds;
 mod domain;
 mod duration;
