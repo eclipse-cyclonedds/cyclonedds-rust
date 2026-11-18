@@ -233,8 +233,16 @@ fn test_serdata_ops_from_keyhash() {
     static MOCKED_MAX_SERIALIZED_CDR_SIZE: std::sync::Mutex<crate::cdr_bounds::CdrSize> =
         std::sync::Mutex::new(crate::cdr_bounds::CdrSize::Unbounded);
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq, PartialEq, Default, Hash)]
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq, PartialEq, Hash)]
     pub struct MockedKey(u32, i32, String);
+
+    const INITIAL_CAPACITY: usize = 64;
+
+    impl Default for MockedKey {
+        fn default() -> Self {
+            Self(0, 0, String::with_capacity(INITIAL_CAPACITY))
+        }
+    }
 
     impl crate::cdr_bounds::CdrBounds for MockedKey {
         fn max_serialized_cdr_size() -> crate::cdr_bounds::CdrSize {
@@ -278,6 +286,8 @@ fn test_serdata_ops_from_keyhash() {
         unsafe { Box::from_raw(result.cast::<crate::internal::serdata::Serdata<Data>>()) };
     assert_eq!(serdata.kind(), crate::internal::serdata::Kind::Key);
     assert_eq!(serdata.key(), &key);
+    // In-place decoding reuses the string allocated by the key's default constructor.
+    assert!(serdata.key().2.capacity() >= INITIAL_CAPACITY);
     assert_eq!(serdata.sample(), &sample);
     assert_eq!(serdata.sample(), &Data::from_key(&key));
 

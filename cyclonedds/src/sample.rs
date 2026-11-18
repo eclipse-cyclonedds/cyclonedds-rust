@@ -36,15 +36,23 @@ where
     T: crate::Topicable,
 {
     pub fn new_sample(sample: T) -> Self {
+        Self::from_boxed_sample(Box::new(sample))
+    }
+
+    pub fn new_key(key: T::Key) -> Self {
+        Self::from_boxed_key(Box::new(key))
+    }
+
+    pub const fn from_boxed_sample(sample: Box<T>) -> Self {
         Self::Sample {
-            sample: Box::new(sample),
+            sample,
             materialized_key: std::cell::OnceCell::new(),
         }
     }
 
-    pub fn new_key(key: T::Key) -> Self {
+    pub const fn from_boxed_key(key: Box<T::Key>) -> Self {
         Self::Key {
-            key: Box::new(key),
+            key,
             materialized_sample: std::cell::OnceCell::new(),
         }
     }

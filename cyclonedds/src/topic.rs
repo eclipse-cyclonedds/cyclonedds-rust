@@ -407,7 +407,7 @@ mod tests {
     fn test_topic_create_with_invalid_names() {
         use crate::Topicable;
 
-        #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+        #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Default)]
         struct MockedTypeNameData;
         static MOCKED_NAME: std::sync::Mutex<&str> = std::sync::Mutex::new("");
 

@@ -188,6 +188,7 @@ dependencies = [
  "eclipse-cyclonedds-sys",
  "md-5",
  "serde",
+ "serde_derive",
  "uuid",
 ]
 
