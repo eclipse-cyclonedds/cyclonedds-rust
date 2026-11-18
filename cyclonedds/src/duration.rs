@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_to_std_duration() {
-        let nanos = 11_222_33;
+        let nanos = 1_122_233;
         let duration = Duration::from_nanos(nanos);
         let expected = std::time::Duration::from_nanos(nanos as u64);
         let actual = std::time::Duration::from(duration);

@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_to_std_system_time() {
-        let nanos = 11_222_33;
+        let nanos = 1_122_233;
         let time = Time::from_nanos(nanos);
         let expected =
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(nanos as u64);
