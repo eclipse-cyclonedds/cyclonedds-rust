@@ -373,6 +373,11 @@ where
         return std::ptr::null_mut();
     };
 
+    // NOTE: on Windows, converting the fragment length to `ddsrt_iov_len_t`
+    // can fail, so the closure must return an `Option` and use `and_then`.
+    // On other platforms the conversion is compiled out, making this look like
+    // `map` and triggering the `clippy::bind_instead_of_map` warning.
+    #[allow(clippy::bind_instead_of_map)]
     serdata
         .serialized_with_size_hint(end)
         .ok()
@@ -391,8 +396,7 @@ where
             container.iov_len = iov_len;
             Some(())
         })
-        .map(|()| unsafe { cyclonedds_sys::ddsi_serdata_ref(&raw const serdata.inner) })
-        .unwrap_or_default()
+        .map_or_default(|()| unsafe { cyclonedds_sys::ddsi_serdata_ref(&raw const serdata.inner) })
 }
 
 /// Relinquish the reference handed out by [`to_ser_ref`].
