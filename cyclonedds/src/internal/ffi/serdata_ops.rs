@@ -66,10 +66,11 @@ where
     T: serde::Deserialize<'de> + Default,
     BO: byteorder::ByteOrder,
 {
-    // Keeping this call out of line lets the optimizer use the box allocation
-    // as the return destination for a large default value.
+    // NOTE: `extern "C"` tells the caller that this function cannot unwind,
+    // even when `T::default()` is compiled in another codegen unit. Keeping
+    // the call out of line lets the optimizer use the box as the return slot.
     #[inline(never)]
-    fn default_value<T: Default>() -> T {
+    extern "C" fn default_value<T: Default>() -> T {
         T::default()
     }
 
