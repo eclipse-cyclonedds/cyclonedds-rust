@@ -199,7 +199,7 @@ fn read_write() -> dds::Result<()> {
 
     let domain = dds::Domain::new_with_xml_config(domain_id_02, config)?;
     let participant = dds::Participant::builder(&domain).with_qos(&qos).build()?;
-    let topic = dds::Topic::new(&participant, &topic_name)?;
+    let topic = dds::Topic::<_>::new(&participant, &topic_name)?;
     let writer = dds::Writer::new(&topic)?;
 
     writer.set_status_mask(dds::Status::PublicationMatched)?;
