@@ -563,7 +563,7 @@ unsafe extern "C" fn delete_psmx(psmx: *mut cyclonedds_sys::dds_psmx) {
 ///
 /// ## Safety
 /// `psmx_instance` must be a valid pointer to write the new instance through.
-/// `config` is ignored, so it may be anything.
+/// `config` must be null or a valid C string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rusttest_create_psmx(
     psmx_instance: *mut *mut cyclonedds_sys::dds_psmx,

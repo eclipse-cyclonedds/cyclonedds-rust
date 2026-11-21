@@ -596,7 +596,8 @@ where
     /// depends on a matched writer resolving to the same PSMX Instance with the
     /// same locator.
     ///
-    /// Note that samples received this way are still deserialized; see the
+    /// Note that on a [`Serialized`](crate::Serialized) topic samples received
+    /// this way are still deserialized; see the
     /// [`PsmxInstances`](crate::qos::policy::PsmxInstances) policy for how to
     /// select instances.
     ///

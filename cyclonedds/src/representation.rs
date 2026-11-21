@@ -7,10 +7,9 @@
 //! the [`Writer`](crate::Writer) and [`Reader`](crate::Reader) built from the
 //! topic.
 //!
-//! The distinction is a type parameter rather than a flag so that operations
-//! which only make sense for one of them — [`Writer::loan`](crate::Writer::loan)
-//! and [`Reader::take_loaned`](crate::Reader::take_loaned), which hand out
-//! borrowed shared memory — simply do not exist on the other.
+//! The distinction is a type parameter rather than a flag so that an operation
+//! which only makes sense for one of them — [`Writer::loan`](crate::Writer::loan),
+//! which hands out borrowed shared memory — simply does not exist on the other.
 
 /// A topic's sample representation.
 ///
