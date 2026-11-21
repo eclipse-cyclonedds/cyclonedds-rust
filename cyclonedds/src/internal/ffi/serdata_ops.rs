@@ -839,7 +839,32 @@ where
             // SAFETY: guaranteed by the caller, and checked above to be non-null
             // and aligned.
             let Some(sample) = (unsafe { R::borrow_raw_loan(loan.sample_ptr) }) else {
-                return std::ptr::null_mut();
+                // A serialized topic cannot keep borrowed memory, but it can still
+                // copy the sample out when its type is `FixedSize`. Otherwise the
+                // bytes are some other layout and there is nothing to read them as.
+                if T::RAW_LOANABLE.is_none() {
+                    return std::ptr::null_mut();
+                }
+
+                // SAFETY: `RAW_LOANABLE` proves `T: FixedSize`, so any bit pattern
+                // is a valid `T`; the pointer was checked above to be non-null,
+                // aligned and backed by at least `size_of::<T>()` bytes.
+                let sample = unsafe { loan.sample_ptr.cast::<T>().read() };
+                let serdata = into_serdata(
+                    sertype,
+                    match kind {
+                        crate::internal::serdata::Kind::Data => SampleOrKey::new_sample(sample),
+                        crate::internal::serdata::Kind::Key => {
+                            SampleOrKey::new_key(crate::Topicable::as_key(&sample))
+                        }
+                    },
+                );
+
+                // SAFETY: freshly allocated above.
+                let inner = unsafe { &mut *serdata };
+                inner.timestamp.v = metadata.timestamp;
+                inner.statusinfo = metadata.statusinfo;
+                return serdata;
             };
 
             // Keep the loan alive for as long as the serdata that points into it.

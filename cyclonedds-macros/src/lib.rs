@@ -146,6 +146,14 @@ impl ToTokens for TopicableAttributes {
             impl ::cyclonedds::Topicable for #ident {
                 type Key = #key_type;
 
+                const RAW_LOANABLE: ::core::option::Option<
+                    ::cyclonedds::__private::RawLoanable<Self>,
+                > = {
+                    #[allow(unused_imports)]
+                    use ::cyclonedds::__private::NotFixedSize as _;
+                    ::cyclonedds::__private::FixedSizeProbe::<Self>::RAW_LOANABLE
+                };
+
                 #from_key
 
                 #as_key

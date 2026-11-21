@@ -281,8 +281,8 @@ where
     }
 
     unsafe fn borrow_raw_loan(_sample: *const std::ffi::c_void) -> Option<*const T> {
-        // The payload is some other binding's memory layout, and a Serde/CDR
-        // based `Topicable` has nothing valid to reinterpret it as.
+        // A serialized topic owns its samples, so it never borrows; `from_psmx`
+        // copies the sample out instead when the type allows it.
         None
     }
 }

@@ -95,6 +95,14 @@ pub trait Topicable:
     /// MD5 otherwise. Set this to `true` to force MD5 unconditionally.
     const FORCE_MD5_KEYHASH: bool = false;
 
+    /// Proof that `Self` is [`FixedSize`], when it is.
+    ///
+    /// Lets an endpoint on a serialized topic still read a sample a zero-copy
+    /// writer sent as raw memory. `derive(Topicable)` fills it in; a hand-written
+    /// impl leaves the default and such samples are dropped.
+    #[doc(hidden)]
+    const RAW_LOANABLE: Option<__private::RawLoanable<Self>> = None;
+
     /// Constructs a default instance of `Self` from a key.
     ///
     /// Used to materialize a full sample from a key-only notification. Fields
@@ -299,6 +307,35 @@ unsafe impl<T, const N: usize> FixedSize for [T; N] where T: FixedSize {}
 /// assert_zero_copy_capable::<Reading>();
 /// ```
 pub trait FixedSizeTopic: Topicable + FixedSize {}
+
+/// Support for `derive(Topicable)`, which has to find out whether the type is
+/// also [`FixedSize`] without being able to name that as a bound.
+#[doc(hidden)]
+pub mod __private {
+    /// Proof that `T` is [`FixedSize`](super::FixedSize): the only value of this
+    /// type is the one [`FixedSizeProbe`] hands out under that bound.
+    #[derive(Debug, Clone, Copy)]
+    pub struct RawLoanable<T>(std::marker::PhantomData<fn() -> T>);
+
+    /// Resolves `RAW_LOANABLE` to the inherent constant when `T` is `FixedSize`,
+    /// and to the [`NotFixedSize`] default otherwise.
+    #[derive(Debug)]
+    pub struct FixedSizeProbe<T>(std::marker::PhantomData<T>);
+
+    impl<T: super::FixedSize> FixedSizeProbe<T> {
+        pub const RAW_LOANABLE: Option<RawLoanable<T>> =
+            Some(RawLoanable(std::marker::PhantomData));
+    }
+
+    pub trait NotFixedSize {
+        type Sample;
+        const RAW_LOANABLE: Option<RawLoanable<Self::Sample>> = None;
+    }
+
+    impl<T> NotFixedSize for FixedSizeProbe<T> {
+        type Sample = T;
+    }
+}
 
 impl<T> FixedSizeTopic for T where T: Topicable + FixedSize {}
 

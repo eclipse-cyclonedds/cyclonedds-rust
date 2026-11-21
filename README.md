@@ -324,13 +324,14 @@ They borrow the reader, so samples cannot outlive it. Drop them promptly: until
 they do, the writer's PSMX Instance cannot reuse the memory they point at, and a
 writer whose pool runs dry has to wait.
 
-Both ends must opt in — a reader only accepts a raw payload on a topic that
-agreed to the raw representation. A zero-copy writer sends raw memory over PSMX
-whoever is listening, so a reader that left the same topic serialized cannot use
-what arrives and the sample is lost: give every endpoint that shares a PSMX
-Instance on a topic the same representation. The other way round is fine, since a
-zero-copy reader still accepts CDR, and a zero-copy topic falls back to CDR
-whenever PSMX is not usable for a given pair. `Writer::loan` also works with no
+Both ends must opt in to share memory, but they need not opt in together. A
+zero-copy reader still accepts CDR from a serialized writer. A zero-copy writer
+sends raw memory over PSMX whoever is listening, and a reader that left the same
+topic serialized copies the sample out of it, which `derive(Topicable)` arranges
+for any type that is also `FixedSize`. A reader whose type implements `Topicable`
+by hand cannot do that and loses the sample, so give those the zero-copy
+representation too. A zero-copy topic falls back to CDR whenever PSMX is not
+usable for a given pair. `Writer::loan` also works with no
 PSMX interface configured, borrowing heap memory instead; the programming model is
 the same, the benefit is not.
 

@@ -310,9 +310,6 @@ fn psmx_delivers_a_serialized_sample() -> dds::Result<()> {
 }
 
 /// A zero-copy reader still accepts what a serialized writer sends.
-///
-/// Only this direction mixes: a zero-copy writer sends raw memory, which a reader
-/// on a serialized topic has no way to interpret.
 #[test]
 fn psmx_zero_copy_reader_accepts_a_serialized_writer() -> dds::Result<()> {
     let trace = Trace::new();
@@ -343,6 +340,50 @@ fn psmx_zero_copy_reader_accepts_a_serialized_writer() -> dds::Result<()> {
 
     expect_one_sample(&reader, &expected);
     assert_eq!(trace.states(&topic_name), ["SERIALIZED_DATA"]);
+    Ok(())
+}
+
+/// A serialized reader still accepts what a zero-copy writer sends.
+///
+/// The sample arrives as raw memory. The reader's topic did not ask for that, but
+/// `derive(Topicable)` knows the type is `FixedSize`, so the sample is copied out
+/// rather than dropped.
+#[test]
+fn psmx_serialized_reader_accepts_a_zero_copy_writer() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    let writer_domain = dds::Domain::new_with_xml_config(
+        common::domain::unique_id(),
+        &config(0x10, "raw-to-plain-writer", &trace),
+    )?;
+    let reader_domain = dds::Domain::new_with_xml_config(
+        common::domain::unique_id(),
+        &config(0x10, "raw-to-plain-reader", &trace),
+    )?;
+
+    let reader_participant = dds::Participant::new(&reader_domain)?;
+    let reader_topic = dds::Topic::<Reading>::new(&reader_participant, &topic_name)?;
+    let reader = dds::Reader::new(&reader_topic)?;
+
+    let writer_participant = dds::Participant::new(&writer_domain)?;
+    let writer_topic = zero_copy_topic::<Reading>(&writer_participant, &topic_name)?;
+    let writer = dds::Writer::new(&writer_topic)?;
+
+    let expected = Reading {
+        sensor_id: 13,
+        sequence: 21,
+        value: 34.0,
+    };
+    writer.write(&expected)?;
+    expect_one_sample(&reader, &expected);
+
+    // A dispose travels as a raw key, which takes the same route.
+    writer.dispose(&dds::Topicable::as_key(&expected))?;
+    await_sample(|| !reader.peek().expect("failed to peek the reader").is_empty());
+    let samples = reader.take()?;
+    assert!(samples[0].is_key());
+
+    assert_eq!(trace.states(&topic_name), ["RAW_DATA", "RAW_KEY"]);
     Ok(())
 }
 
