@@ -2,6 +2,8 @@
 #define WRAPPER_H_
 
 #include <dds/dds.h>
+#include <dds/ddsc/dds_loaned_sample.h>
+#include <dds/ddsc/dds_psmx.h>
 #include <dds/ddsc/dds_public_impl.h>
 #include <dds/ddsc/dds_public_qosdefs.h>
 #include <dds/ddsi/ddsi_radmin.h>
@@ -32,6 +34,26 @@ static struct ddsi_serdata* ddsi_serdata_ref_bindgen_wrapper(
 static void ddsi_serdata_unref_bindgen_wrapper(struct ddsi_serdata* serdata) {
   ddsi_serdata_unref(serdata);
 }
+
+/// Increments the reference count of a `dds_loaned_sample` object.
+static void dds_loaned_sample_ref_bindgen_wrapper(
+    dds_loaned_sample_t* loaned_sample) {
+  dds_loaned_sample_ref(loaned_sample);
+}
+
+/// Decrements the reference count of a `dds_loaned_sample` object, releasing it
+/// through the owning PSMX interface once it reaches zero.
+static void dds_loaned_sample_unref_bindgen_wrapper(
+    dds_loaned_sample_t* loaned_sample) {
+  dds_loaned_sample_unref(loaned_sample);
+}
+
+/// The `cdr_identifier` a PSMX loan carries when its payload is not serialized
+/// but the application's own representation.
+///
+/// Defined in an internal header as a macro, so it needs naming here to reach
+/// Rust.
+static const uint16_t RTPS_SAMPLE_NATIVE = DDSI_RTPS_SAMPLE_NATIVE;
 
 /// The value that represents the default domain ID.
 static const dds_domainid_t DOMAIN_DEFAULT = DDS_DOMAIN_DEFAULT;

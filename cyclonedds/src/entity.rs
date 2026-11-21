@@ -364,11 +364,11 @@ macro_rules! impl_entity {
 }
 
 impl_entity!(crate::Participant<'_>);
-impl_entity!(crate::Topic<'_, '_, T> where T: crate::Topicable);
+impl_entity!(crate::Topic<'_, '_, T, R> where T: crate::Topicable, R: crate::representation::Representation);
 impl_entity!(crate::Publisher<'_, '_>);
 impl_entity!(crate::Subscriber<'_, '_>);
-impl_entity!(crate::Reader<'_, '_, '_, T> where T: crate::Topicable);
-impl_entity!(crate::Writer<'_, '_, '_, T> where T: crate::Topicable);
+impl_entity!(crate::Reader<'_, '_, '_, T, R> where T: crate::Topicable, R: crate::representation::Representation);
+impl_entity!(crate::Writer<'_, '_, '_, T, R> where T: crate::Topicable, R: crate::representation::Representation);
 impl_entity!(crate::ReadCondition<'_, '_, '_, '_, T> where T: crate::Topicable);
 impl_entity!(crate::QueryCondition<'_, '_, '_, '_, T, F> where T: crate::Topicable, F: Fn(&T) -> bool);
 impl_entity!(crate::GuardCondition<'_>);

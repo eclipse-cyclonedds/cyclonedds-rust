@@ -397,6 +397,76 @@ impl AsFfi for Partition {
     }
 }
 
+/// Selects which Pub/Sub Message Exchange (PSMX) Instances an endpoint may use
+/// to off-load data transfer, for example to shared memory.
+///
+/// A PSMX Instance is configured on a domain through the
+/// `PubSubMessageExchange` element of the Cyclone DDS XML configuration, and is
+/// referred to here by its instance name. Cyclone DDS off-loads transfer for a
+/// matched reader and writer when both resolve to the same PSMX Instance and
+/// that instance reports the same locator on both ends, which for a
+/// shared-memory implementation means the same machine.
+///
+/// Leaving this policy unset lets an endpoint use every PSMX Instance
+/// configured on its domain that supports its topic type and `QoS`, which is
+/// usually what you want. Set it to restrict an endpoint to a subset, or to an
+/// empty list to keep an endpoint off PSMX entirely.
+///
+/// # Examples
+///
+/// ```
+/// use cyclonedds::QoS;
+/// use cyclonedds::qos::policy;
+///
+/// // Restrict this endpoint to the PSMX Instance named "shm".
+/// let qos = QoS::new().with_psmx_instances(policy::PsmxInstances {
+///     instances: vec!["shm".to_string()],
+/// });
+///
+/// // Keep this endpoint off PSMX entirely.
+/// let qos = QoS::new().with_psmx_instances(policy::PsmxInstances {
+///     instances: Vec::new(),
+/// });
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PsmxInstances {
+    /// The PSMX Instance names this endpoint may use.
+    ///
+    /// At most [`MAX`](PsmxInstances::MAX) names, none of which may be empty.
+    pub instances: Vec<String>,
+}
+
+impl PsmxInstances {
+    /// The largest number of PSMX Instances Cyclone DDS accepts for a single
+    /// entity.
+    pub const MAX: u32 = cyclonedds_sys::DDS_MAX_PSMX_INSTANCES;
+}
+
+impl AsFfi for PsmxInstances {
+    type Target<'a> = Vec<std::ffi::CString>;
+
+    #[inline]
+    fn as_ffi(&self) -> Self::Target<'_> {
+        self.instances
+            .iter()
+            .map(|instance| {
+                assert!(
+                    !instance.is_empty(),
+                    "a PSMX instance name may not be empty (Cyclone DDS would silently discard \
+                     the whole policy)"
+                );
+
+                std::ffi::CString::new(instance.as_str()).unwrap_or_else(|err| {
+                    panic!(
+                        "unable to safely create std::ffi::CString from PSMX instance name: \
+                         {instance:?}: {err}"
+                    )
+                })
+            })
+            .collect()
+    }
+}
+
 /// The delivery guarantee for samples.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reliability {

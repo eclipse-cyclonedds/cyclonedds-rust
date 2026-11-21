@@ -4,8 +4,7 @@
 use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
 
-use crate::internal::ffi::InternalSample;
-use crate::internal::ffi::serdata_ops::DDSI_RTPS_HEADER_SIZE;
+use crate::internal::layout::Layout;
 use crate::internal::sertype::Sertype;
 use crate::internal::traits::CdrHeader;
 
@@ -76,11 +75,11 @@ pub(crate) const fn zeroed_sertype_ops() -> cyclonedds_sys::ddsi_sertype_ops {
 /// ## Safety
 /// The provided `sertype` pointer must be from the pointer embedded in a
 /// [`Sertype`] that was created via [`Sertype::new`].
-pub unsafe extern "C" fn free<T>(sertype: *mut cyclonedds_sys::ddsi_sertype)
+pub unsafe extern "C" fn free<T, R>(sertype: *mut cyclonedds_sys::ddsi_sertype)
 where
     T: crate::Topicable,
 {
-    let sertype = unsafe { Box::from_raw(sertype.cast::<Sertype<T>>()) };
+    let sertype = unsafe { Box::from_raw(sertype.cast::<Sertype<T, R>>()) };
     drop(sertype);
 }
 
@@ -88,25 +87,30 @@ where
 ///
 /// This is used for generating samples from just a key value and in cleaning up
 /// after a loan is returned.
-pub unsafe extern "C" fn zero_samples<T>(
+///
+/// ## Safety
+/// - `sertype` must be a non-null pointer to a fully-initialized [`Sertype<T, R>`].
+/// - `samples` must be valid for writes of `count` samples in the representation `R`.
+pub unsafe extern "C" fn zero_samples<T, R>(
     _sertype: *const cyclonedds_sys::ddsi_sertype,
     samples: *mut std::ffi::c_void,
     count: usize,
 ) where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let samples = samples.cast::<InternalSample<'_, T>>();
-
-    for i in 0..count {
-        unsafe {
-            let pointer = samples.add(i);
-            pointer.write(InternalSample::None);
-        }
-    }
+    // SAFETY: guaranteed by the caller.
+    unsafe { R::zero_samples(samples, count) };
 }
 
 /// Realloc the sample buffer.
-pub unsafe extern "C" fn realloc_samples<T>(
+///
+/// ## Safety
+/// - `sertype` must be a non-null pointer to a fully-initialized [`Sertype<T, R>`].
+/// - `pointers` must be valid for writes of `new_count` pointers.
+/// - `old_samples`, when non-null, must be a buffer of `old_count` samples previously produced by
+///   this function for the same `sertype`.
+pub unsafe extern "C" fn realloc_samples<T, R>(
     pointers: *mut *mut std::ffi::c_void,
     _sertype: *const cyclonedds_sys::ddsi_sertype,
     old_samples: *mut std::ffi::c_void,
@@ -114,47 +118,10 @@ pub unsafe extern "C" fn realloc_samples<T>(
     new_count: usize,
 ) where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let pointers = pointers.cast::<*mut InternalSample<'_, T>>();
-    let old_samples = old_samples.cast::<InternalSample<'_, T>>();
-
-    let pointers = unsafe { std::slice::from_raw_parts_mut(pointers, new_count) };
-
-    // Copy over initial samples.
-    if !old_samples.is_null() && old_count != 0 {
-        let old_samples = unsafe { std::slice::from_raw_parts_mut(old_samples, old_count) };
-
-        let count = old_count.min(new_count);
-
-        // Split into samples to keep and samples to drop
-        let (samples_to_keep, samples_to_drop) = old_samples.split_at_mut(count);
-
-        // Move retained samples
-        for (pointer, sample) in pointers.iter_mut().zip(samples_to_keep.iter()) {
-            let sample = unsafe { std::ptr::read(sample) };
-            *pointer = Box::into_raw(Box::new(sample));
-        }
-
-        // If it's shrinking.
-        for sample in samples_to_drop {
-            unsafe { std::ptr::drop_in_place(sample) };
-        }
-
-        #[allow(clippy::indexing_slicing)]
-        // `count <= pointers.len()` as `count` is the minimum of `new_count`
-        // (which `pointers` was created with) and `old_count`.
-        let remaining_slots = &mut pointers[count..];
-
-        // Allocate new samples for additional slots
-        for pointer in remaining_slots {
-            *pointer = Box::into_raw(Box::new(InternalSample::None));
-        }
-    } else {
-        // Allocate new samples for additional slots
-        for pointer in pointers {
-            *pointer = Box::into_raw(Box::new(InternalSample::None));
-        }
-    }
+    // SAFETY: guaranteed by the caller.
+    unsafe { R::realloc_samples(pointers, old_samples, old_count, new_count) };
 }
 
 /// Free previously allocated samples.
@@ -163,15 +130,17 @@ pub unsafe extern "C" fn realloc_samples<T>(
 /// [`serdata_ops::to_sample`][`crate::internal::ffi::serdata_ops::to_sample`].
 ///
 /// ## Safety
-/// `pointers` must be non-null and must point to a valid pointer that was
-/// allocated via a `Box<T>`.
-pub unsafe extern "C" fn free_samples<T>(
+/// - `sertype` must be a non-null pointer to a fully-initialized [`Sertype<T, R>`].
+/// - `pointers` must be non-null and point to `count` sample pointers produced by
+///   [`realloc_samples`] for the same `sertype`.
+pub unsafe extern "C" fn free_samples<T, R>(
     _sertype: *const cyclonedds_sys::ddsi_sertype,
     pointers: *mut *mut std::ffi::c_void,
     count: usize,
     operation: cyclonedds_sys::dds_free_op_t,
 ) where
     T: crate::Topicable,
+    R: Layout<T>,
 {
     // NOTE: `operation` is an enum with a different backing type under Windows
     // (i32) and the rest of the operating systems (u32). For the Rust API I've
@@ -183,20 +152,9 @@ pub unsafe extern "C" fn free_samples<T>(
 
     let free_all = operation & cyclonedds_sys::DDS_FREE_ALL_BIT != 0;
     let free_contents = operation & cyclonedds_sys::DDS_FREE_CONTENTS_BIT != 0;
-    let samples = pointers.cast::<*mut InternalSample<'_, T>>();
 
-    if free_all {
-        for i in 0..count {
-            let sample = unsafe { Box::from_raw(*samples.add(i)) };
-            drop(sample);
-        }
-    } else if free_contents {
-        for i in 0..count {
-            unsafe {
-                (*samples.add(i)).drop_in_place();
-            }
-        }
-    }
+    // SAFETY: guaranteed by the caller.
+    unsafe { R::free_samples(pointers, count, free_all, free_contents) };
 }
 
 /// Compares two [`Sertype`] instances for equality.
@@ -204,15 +162,15 @@ pub unsafe extern "C" fn free_samples<T>(
 /// # Safety
 /// - The `lhs` and `rhs` must point to `Sertype`s previously constructed by the Rust API.
 /// - The `type_name` field of the pointers must be a valid null-terminated string.
-pub unsafe extern "C" fn equal<T>(
+pub unsafe extern "C" fn equal<T, R>(
     lhs: *const cyclonedds_sys::ddsi_sertype,
     rhs: *const cyclonedds_sys::ddsi_sertype,
 ) -> bool
 where
     T: crate::Topicable,
 {
-    let lhs = unsafe { &mut *(lhs as *mut Sertype<T>) };
-    let rhs = unsafe { &mut *(rhs as *mut Sertype<T>) };
+    let lhs = unsafe { &mut *(lhs as *mut Sertype<T, R>) };
+    let rhs = unsafe { &mut *(rhs as *mut Sertype<T, R>) };
 
     // Also base this on the type support identifier?
     unsafe { CStr::from_ptr(lhs.inner.type_name) == CStr::from_ptr(rhs.inner.type_name) }
@@ -223,11 +181,11 @@ where
 /// # Safety
 /// The provided `sertype` must be a valid sertype created through
 /// [`Sertype::new`].
-pub unsafe extern "C" fn hash<T>(sertype: *const cyclonedds_sys::ddsi_sertype) -> u32
+pub unsafe extern "C" fn hash<T, R>(sertype: *const cyclonedds_sys::ddsi_sertype) -> u32
 where
     T: crate::Topicable,
 {
-    let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
+    let sertype = unsafe { &mut *(sertype as *mut Sertype<T, R>) };
 
     let name = unsafe { CStr::from_ptr(sertype.inner.type_name) };
     let type_size = std::mem::size_of::<T>();
@@ -327,9 +285,53 @@ where
     std::ptr::null_mut()
 }
 
-/// TODO Unimplemented.
+/// A [`std::io::Write`] sink that discards its input and only counts the bytes
+/// written to it.
+///
+/// Used to measure the serialized size of a sample without allocating a buffer
+/// for the result.
+#[derive(Debug, Default)]
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    #[inline]
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0 += buffer.len();
+        Ok(buffer.len())
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The CDR encoding identifier for the representation this binding writes.
+///
+/// Carries the first two bytes of the encapsulation header as loaded through a
+/// native `uint16_t`, which is how Cyclone DDS represents this field
+/// throughout — its `DDSI_RTPS_CDR_*` constants are defined per host endianness
+/// to match.
+fn cdr_encoding_identifier() -> u16 {
+    let [identifier_high, identifier_low, _, _] = byteorder::NativeEndian::cdr_header();
+    u16::from_ne_bytes([identifier_high, identifier_low])
+}
+
+/// Report the serialized size of a sample, and the encoding it would be
+/// serialized in.
+///
+/// The reported size *excludes* the four byte encapsulation header, matching
+/// [`serialize_into`]. Cyclone DDS uses the pair to size a PSMX loan and then
+/// fill it, storing the encoding identifier in the loan metadata rather than in
+/// the payload.
+///
+/// Returns `DDS_RETCODE_OK` on success, or `DDS_RETCODE_BAD_PARAMETER` if the
+/// sample cannot be serialized in the requested representation.
+///
 /// # Safety
-pub unsafe extern "C" fn get_serialized_size<T>(
+/// - `sample` must be a non-null pointer to a fully-initialized sample in the representation `R`.
+/// - `size` and `encoding_identifier` must be non-null and valid for writes.
+pub unsafe extern "C" fn get_serialized_size<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     serdata_kind: cyclonedds_sys::ddsi_serdata_kind,
     sample: *const std::ffi::c_void,
@@ -338,19 +340,53 @@ pub unsafe extern "C" fn get_serialized_size<T>(
 ) -> i32
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let args = (sertype, serdata_kind, sample, size, encoding_identifier);
-    eprintln!(
-        "sertype_ops::get_serialized_size<{}>({args:?})",
-        std::any::type_name::<T>()
-    );
-    0
+    /// `DDS_RETCODE_BAD_PARAMETER`, already signed in the generated bindings.
+    const BAD_PARAMETER: i32 = cyclonedds_sys::DDS_RETCODE_BAD_PARAMETER;
+
+    if sertype.is_null() || sample.is_null() || size.is_null() || encoding_identifier.is_null() {
+        return BAD_PARAMETER;
+    }
+
+    let Ok(kind) = crate::internal::serdata::Kind::try_from(serdata_kind) else {
+        return BAD_PARAMETER;
+    };
+
+    let mut counter = ByteCounter::default();
+    // SAFETY: guaranteed by the caller, `sample` is a valid sample in the
+    // representation this sertype declares.
+    if unsafe { R::serialize_payload(kind, sample, &mut counter) }.is_err() {
+        return BAD_PARAMETER;
+    }
+
+    // SAFETY: guaranteed by the caller, both are non-null and valid for writes.
+    unsafe {
+        *size = counter.0;
+        *encoding_identifier = cdr_encoding_identifier();
+    }
+
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "DDS_RETCODE_OK is zero; the generated binding merely types it as unsigned"
+    )]
+    {
+        cyclonedds_sys::DDS_RETCODE_OK as i32
+    }
 }
 
+/// Serialize a sample into a caller-provided buffer.
+///
+/// Writes native-endian CDR *without* the four byte encapsulation header, whose
+/// contents Cyclone DDS obtains separately from [`get_serialized_size`]. The
+/// buffer must be at least the size that op reported.
 ///
 /// # Safety
-pub unsafe extern "C" fn serialize_into<T>(
-    _sertype: *const cyclonedds_sys::ddsi_sertype,
+/// - `sample` must be a non-null pointer to a fully-initialized sample in the representation `R`.
+/// - `destination_buffer` must be non-null and valid for writes of
+///   `destination_buffer_length` bytes.
+pub unsafe extern "C" fn serialize_into<T, R>(
+    sertype: *const cyclonedds_sys::ddsi_sertype,
     serdata_kind: cyclonedds_sys::ddsi_serdata_kind,
     sample: *const std::ffi::c_void,
     destination_buffer: *mut std::ffi::c_void,
@@ -358,36 +394,21 @@ pub unsafe extern "C" fn serialize_into<T>(
 ) -> bool
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let buffer = unsafe {
-        std::slice::from_raw_parts_mut(destination_buffer.cast(), destination_buffer_length)
-    };
-
-    if let Some(header) = buffer.get_mut(0..DDSI_RTPS_HEADER_SIZE) {
-        header.copy_from_slice(&byteorder::NativeEndian::cdr_header());
-    } else {
+    if sertype.is_null() || sample.is_null() || destination_buffer.is_null() {
         return false;
     }
 
-    if sample.is_null() {
-        false
-    } else {
-        let sample = unsafe { &*(sample.cast::<InternalSample<'_, T>>()) };
-        match (
-            crate::internal::serdata::Kind::try_from(serdata_kind),
-            sample,
-        ) {
-            (Ok(crate::internal::serdata::Kind::Data), InternalSample::Sample(sample)) => buffer
-                .get_mut(DDSI_RTPS_HEADER_SIZE..)
-                .is_some_and(|bytes| {
-                    cdr_encoding::to_writer::<_, byteorder::NativeEndian, _>(bytes, sample).is_ok()
-                }),
-            (Ok(crate::internal::serdata::Kind::Key), InternalSample::Key(key)) => buffer
-                .get_mut(DDSI_RTPS_HEADER_SIZE..)
-                .is_some_and(|bytes| {
-                    cdr_encoding::to_writer::<_, byteorder::NativeEndian, _>(bytes, key).is_ok()
-                }),
-            _ => false,
-        }
-    }
+    let Ok(kind) = crate::internal::serdata::Kind::try_from(serdata_kind) else {
+        return false;
+    };
+
+    // SAFETY: guaranteed by the caller.
+    let buffer = unsafe {
+        std::slice::from_raw_parts_mut(destination_buffer.cast::<u8>(), destination_buffer_length)
+    };
+
+    // SAFETY: guaranteed by the caller.
+    unsafe { R::serialize_payload(kind, sample, buffer) }.is_ok()
 }

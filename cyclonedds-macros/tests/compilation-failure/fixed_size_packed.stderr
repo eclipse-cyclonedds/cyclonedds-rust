@@ -1,0 +1,5 @@
+error: `FixedSize` cannot be derived for a `#[repr(packed)]` type: its layout is not what a C compiler produces for the equivalent IDL type
+ --> tests/compilation-failure/fixed_size_packed.rs:7:8
+  |
+7 | struct Data {
+  |        ^^^^

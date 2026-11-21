@@ -22,29 +22,38 @@ use crate::{Result, Subscriber, Topic};
 /// | [`read`](Reader::read) | Returns samples and marks them as read (but leaves them available for subsequent reads). | Samples remain in the reader cache.        | Marked as read.                |
 /// | [`take`](Reader::take) | Returns samples and removes them (making them unavailable for subsequent reads).         | Samples are removed from the reader cache. | Consumed and no longer cached. |
 #[derive(Debug, PartialEq, Eq)]
-pub struct Reader<'domain, 'participant, 'topic, T>
+pub struct Reader<'domain, 'participant, 'topic, T, R = crate::representation::Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
-    phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T>>,
+    phantom_topic: std::marker::PhantomData<&'topic Topic<'domain, 'participant, T, R>>,
 }
 
 /// Builder for [`Reader<T>`] (accessible via [`Reader::builder`]).
 #[derive(Debug)]
-pub struct ReaderBuilder<'domain, 'participant, 'topic, 'qos, T>
-where
+pub struct ReaderBuilder<
+    'domain,
+    'participant,
+    'topic,
+    'qos,
+    T,
+    R = crate::representation::Serialized,
+> where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     subscriber: Option<&'participant Subscriber<'domain, 'participant>>,
-    topic: &'topic Topic<'domain, 'participant, T>,
+    topic: &'topic Topic<'domain, 'participant, T, R>,
     qos: Option<&'qos crate::QoS>,
-    listener: Option<crate::ReaderListener<T>>,
+    listener: Option<crate::ReaderListener<T, R>>,
 }
 
-impl<'d, 'p, 't, 'q, T> ReaderBuilder<'d, 'p, 't, 'q, T>
+impl<'d, 'p, 't, 'q, T, R> ReaderBuilder<'d, 'p, 't, 'q, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new [`ReaderBuilder`] for the given [`Topic`].
     ///
@@ -67,7 +76,7 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     #[must_use]
-    pub const fn new(topic: &'t Topic<'d, 'p, T>) -> Self {
+    pub const fn new(topic: &'t Topic<'d, 'p, T, R>) -> Self {
         Self {
             subscriber: None,
             topic,
@@ -160,7 +169,7 @@ where
     #[must_use]
     pub fn with_listener<L>(mut self, listener: L) -> Self
     where
-        L: AsRef<crate::ReaderListener<T>>,
+        L: AsRef<crate::ReaderListener<T, R>>,
     {
         self.listener = Some(listener.as_ref().clone());
         self
@@ -193,7 +202,7 @@ where
     /// let reader = ReaderBuilder::<Data>::new(&topic).with_qos(&qos).build()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn build(self) -> Result<Reader<'d, 'p, 't, T>> {
+    pub fn build(self) -> Result<Reader<'d, 'p, 't, T, R>> {
         // NOTE: using `and_then` to avoid ? branch on the listener for coverage
         // since the C lib currently panics on OOM rather than returning null.
         self.listener
@@ -216,9 +225,10 @@ where
     }
 }
 
-impl<'d, 'p, 't, T> Reader<'d, 'p, 't, T>
+impl<'d, 'p, 't, T, R> Reader<'d, 'p, 't, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     /// Creates a new `Reader` for the given [`Topic`](crate::Topic) with
     /// default [`QoS`](crate::QoS) and no
@@ -246,7 +256,7 @@ where
     /// let reader = Reader::new(&topic)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn new(topic: &'t Topic<'d, 'p, T>) -> Result<Self> {
+    pub fn new(topic: &'t Topic<'d, 'p, T, R>) -> Result<Self> {
         Self::builder(topic).build()
     }
 
@@ -276,7 +286,9 @@ where
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
     #[must_use]
-    pub const fn builder<'q>(topic: &'t Topic<'d, 'p, T>) -> ReaderBuilder<'d, 'p, 't, 'q, T> {
+    pub const fn builder<'q>(
+        topic: &'t Topic<'d, 'p, T, R>,
+    ) -> ReaderBuilder<'d, 'p, 't, 'q, T, R> {
         ReaderBuilder::new(topic)
     }
 
@@ -480,6 +492,140 @@ where
         ffi::dds_reader_wait_for_historical_data(self.inner, timeout.inner)
     }
 
+    /// Takes samples, borrowing their payloads instead of copying them.
+    ///
+    /// Like [`take`](Reader::take): the samples are removed from the reader cache
+    /// and will not be seen again. What differs is what comes back — a
+    /// [`LoanedSample`](crate::LoanedSample) borrows the payload where a
+    /// [`SampleOrKey`](crate::sample::SampleOrKey) owns a copy of it.
+    ///
+    /// On a topic built with
+    /// [`ZeroCopy`](crate::representation::ZeroCopy) representation, and for a
+    /// sample that arrived through a shared-memory PSMX Instance, that borrow is
+    /// of the writer's shared memory: the sample is never copied between the two
+    /// processes. On any other topic the payload had to be decoded into the
+    /// reader's memory first, so this still saves the copy [`take`](Reader::take)
+    /// makes, but no more than that.
+    ///
+    /// The samples borrow the reader, so they cannot outlive it. Return them
+    /// promptly on a zero-copy topic: until they drop, the shared memory they
+    /// point at cannot be reused by the writer's PSMX Instance, and a writer whose
+    /// pool runs dry has to wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to take samples.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant, Reader, Writer, ZeroCopy};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default, PartialEq,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Frame {
+    /// #     pixels: [u8; 16],
+    /// # }
+    /// let topic = TopicBuilder::<Frame, ZeroCopy>::zero_copy(&participant, "Frames").build()?;
+    /// let reader = Reader::new(&topic)?;
+    /// let writer = Writer::new(&topic)?;
+    ///
+    /// writer.write(&Frame { pixels: [7; 16] })?;
+    ///
+    /// let samples = reader.take_loaned()?;
+    /// assert_eq!(samples.len(), 1);
+    /// // Derefs to the payload without copying it.
+    /// assert_eq!(samples[0].pixels[0], 7);
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    pub fn take_loaned(&self) -> Result<Vec<crate::LoanedSample<'_, T>>> {
+        ffi::dds_take_loaned(self.inner)
+    }
+
+    /// Reads samples, borrowing their payloads instead of copying them.
+    ///
+    /// The borrowing counterpart of [`read`](Reader::read): the samples stay in
+    /// the reader cache and are marked as read. See
+    /// [`take_loaned`](Reader::take_loaned) for what borrowing buys and what it
+    /// costs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to read samples.
+    ///
+    /// # Examples
+    ///
+    /// See [`take_loaned`](Reader::take_loaned).
+    pub fn read_loaned(&self) -> Result<Vec<crate::LoanedSample<'_, T>>> {
+        ffi::dds_read_loaned(self.inner)
+    }
+
+    /// Peeks at samples, borrowing their payloads instead of copying them.
+    ///
+    /// The borrowing counterpart of [`peek`](Reader::peek): the samples stay in
+    /// the reader cache and stay unread. See
+    /// [`take_loaned`](Reader::take_loaned) for what borrowing buys and what it
+    /// costs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`](crate::Error) if the reader fails to peek samples.
+    ///
+    /// # Examples
+    ///
+    /// See [`take_loaned`](Reader::take_loaned).
+    pub fn peek_loaned(&self) -> Result<Vec<crate::LoanedSample<'_, T>>> {
+        ffi::dds_peek_loaned(self.inner)
+    }
+
+    /// Whether this reader can receive through a shared-memory PSMX Instance.
+    ///
+    /// Returns `true` when the reader resolved to at least one Pub/Sub Message
+    /// Exchange (PSMX) Instance that advertises shared memory. That requires a
+    /// `PubSubMessageExchange` element in the domain's XML configuration, a
+    /// plugin that reports the shared-memory feature, and a topic type and `QoS`
+    /// the plugin accepts.
+    ///
+    /// This reports only what is available to *this* reader. Whether a
+    /// particular sample actually arrives over shared memory additionally
+    /// depends on a matched writer resolving to the same PSMX Instance with the
+    /// same locator.
+    ///
+    /// Note that on a [`Serialized`](crate::Serialized) topic samples received
+    /// this way are still deserialized; see the
+    /// [`PsmxInstances`](crate::qos::policy::PsmxInstances) policy for how to
+    /// select instances.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use cyclonedds::{Domain, Participant, Reader, Topic};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, serde::Serialize, serde::Deserialize, Clone, Debug, Default,
+    /// # )]
+    /// # struct Data {
+    /// #     #[dds(key)]
+    /// #     x: i32,
+    /// # }
+    /// let topic = Topic::<Data>::new(&participant, "Example")?;
+    /// let reader = Reader::<Data>::new(&topic)?;
+    ///
+    /// // False here, as the default configuration has no PSMX Instance.
+    /// assert!(!reader.is_shared_memory_available());
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub fn is_shared_memory_available(&self) -> bool {
+        ffi::dds_is_shared_memory_available(self.inner)
+    }
+
     pub(crate) const fn from_existing(
         inner: cyclonedds_sys::dds_entity_t,
     ) -> std::mem::ManuallyDrop<Self> {
@@ -522,7 +668,7 @@ where
     /// ```
     pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
     where
-        L: AsRef<crate::ReaderListener<T>>,
+        L: AsRef<crate::ReaderListener<T, R>>,
     {
         listener
             .as_ref()
@@ -587,15 +733,16 @@ where
     /// ```
     pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
     where
-        L: AsRef<crate::ReaderListener<T>>,
+        L: AsRef<crate::ReaderListener<T, R>>,
     {
         self.set_listener(listener).map(|()| self)
     }
 }
 
-impl<T> Drop for Reader<'_, '_, '_, T>
+impl<T, R> Drop for Reader<'_, '_, '_, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn drop(&mut self) {
         let result = ffi::dds_delete(self.inner);

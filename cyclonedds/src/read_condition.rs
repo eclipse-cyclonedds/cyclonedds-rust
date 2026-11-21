@@ -79,7 +79,10 @@ where
     /// let condition = ReadCondition::new(&reader, state::sample::Fresh)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn new(reader: &'r Reader<'d, 'p, 't, T>, mask: State) -> Result<Self> {
+    pub fn new<R: crate::representation::Representation>(
+        reader: &'r Reader<'d, 'p, 't, T, R>,
+        mask: State,
+    ) -> Result<Self> {
         let inner = ffi::dds_create_readcondition(reader.inner, mask.bits())?;
         Ok(Self {
             inner,

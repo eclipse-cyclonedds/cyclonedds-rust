@@ -171,6 +171,13 @@
 // Enable field-by-field deserialization for derived topic types.
 use serde_derive as _;
 
+// The `eclipse-cyclonedds-psmx-test` dev-dependency is here only so that Cargo
+// builds the PSMX plugin `cdylib` that `tests/psmx.rs` has Cyclone DDS load at
+// runtime. No Rust code calls into it, so tell
+// `unused_crate_dependencies` that the dependency is deliberate.
+#[cfg(test)]
+use psmx_rusttest as _;
+
 pub mod cdr_bounds;
 mod domain;
 mod duration;
@@ -178,12 +185,14 @@ pub mod entity;
 mod error;
 mod guard_condition;
 pub mod listener;
+mod loan;
 mod participant;
 mod publisher;
 pub mod qos;
 mod query_condition;
 mod read_condition;
 mod reader;
+pub mod representation;
 pub mod sample;
 pub mod state;
 pub mod status;
@@ -194,7 +203,7 @@ mod topicable;
 mod waitset;
 mod writer;
 
-pub use cyclonedds_macros::Topicable;
+pub use cyclonedds_macros::{FixedSize, Topicable};
 pub use domain::Domain;
 pub use duration::Duration;
 pub use error::{Error, Result};
@@ -202,18 +211,22 @@ pub use guard_condition::GuardCondition;
 pub use listener::{
     Listener, PublisherListener, ReaderListener, SubscriberListener, TopicListener, WriterListener,
 };
+pub use loan::{Loan, LoanedSample};
 pub use participant::Participant;
 pub use publisher::Publisher;
 pub use qos::QoS;
 pub use query_condition::QueryCondition;
 pub use read_condition::ReadCondition;
 pub use reader::Reader;
+pub use representation::{Serialized, ZeroCopy};
 pub use state::State;
 pub use status::bitflags::Status;
 pub use subscriber::Subscriber;
 pub use time::Time;
 pub use topic::Topic;
-pub use topicable::{Key, Topicable};
+#[doc(hidden)]
+pub use topicable::__private;
+pub use topicable::{FixedSize, FixedSizeTopic, Key, Topicable};
 pub use waitset::WaitSet;
 pub use writer::Writer;
 

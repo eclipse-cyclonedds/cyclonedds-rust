@@ -1,11 +1,16 @@
 //! Operations that allow Cyclone to interact with Rust allocated data
 //! structures. These are threaded through the [`Serdata`] type.
+//!
+//! Every op is generic over the topic's [`Representation`][crate::representation]
+//! as well as its type, so the ops that have to interpret an application sample
+//! pointer are compiled once per representation and resolve the choice through
+//! [`Layout`] with no runtime branch.
 
 use std::io::Write;
 
 use crate::cdr_bounds::{CdrBounds, CdrSize};
-use crate::internal::ffi::InternalSample;
 use crate::internal::key_hash::KeyHash;
+use crate::internal::layout::Layout;
 use crate::internal::serdata::Serdata;
 use crate::internal::sertype::Sertype;
 use crate::sample::SampleOrKeyInner as SampleOrKey;
@@ -20,6 +25,17 @@ pub(crate) const fn zeroed_serdata_ops() -> cyclonedds_sys::ddsi_serdata_ops {
     // SAFETY: `cyclonedds_sys::ddsi_serdata_ops` is repr(C) and consists solely of
     // function pointers and various integer types.
     unsafe { std::mem::MaybeUninit::zeroed().assume_init() }
+}
+
+/// Allocate a [`Serdata`] holding `sample` and hand it to Cyclone DDS.
+fn into_serdata<T, R>(
+    sertype: &Sertype<T, R>,
+    sample: SampleOrKey<T>,
+) -> *mut cyclonedds_sys::ddsi_serdata
+where
+    T: crate::Topicable,
+{
+    Box::into_raw(Box::new(Serdata::new(sertype, sample))).cast()
 }
 
 /// Compares the keys of two [`Serdata`] instances for equality.
@@ -80,10 +96,18 @@ where
     Ok(value)
 }
 
-pub(crate) fn from_ser_buffer<T>(
-    sertype: &crate::internal::sertype::Sertype<T>,
+/// Construct a [`Serdata`] from a CDR payload and the encapsulation header that
+/// describes it.
+///
+/// Kept separate from [`from_ser_buffer`] so that a caller which already has the
+/// header apart from the payload — as the PSMX receive path does, since the two
+/// travel in different fields of the loan — does not have to splice them back
+/// together into one buffer first.
+pub(crate) fn from_payload<T, R>(
+    sertype: &Sertype<T, R>,
     kind: crate::internal::serdata::Kind,
-    buffer: &[u8],
+    header: [u8; DDSI_RTPS_HEADER_SIZE],
+    payload: &[u8],
 ) -> *mut cyclonedds_sys::ddsi_serdata
 where
     T: crate::Topicable,
@@ -102,17 +126,34 @@ where
         }
     }
 
-    let Some((header, bytes)) = buffer.split_at_checked(DDSI_RTPS_HEADER_SIZE) else {
-        return std::ptr::null_mut();
-    };
     let sample = match header {
-        [0x0, 0x0, ..] => deserialize::<T, byteorder::BigEndian>(kind, bytes),
-        [0x0, 0x1, ..] => deserialize::<T, byteorder::LittleEndian>(kind, bytes),
+        [0x0, 0x0, ..] => deserialize::<T, byteorder::BigEndian>(kind, payload),
+        [0x0, 0x1, ..] => deserialize::<T, byteorder::LittleEndian>(kind, payload),
         _ => return std::ptr::null_mut(),
     };
-    sample.map_or(std::ptr::null_mut(), |sample| {
-        Box::into_raw(Box::new(Serdata::new(sertype, sample))).cast()
-    })
+
+    sample.map_or(std::ptr::null_mut(), |sample| into_serdata(sertype, sample))
+}
+
+/// Construct a [`Serdata`] from a CDR buffer that still carries its
+/// encapsulation header.
+pub(crate) fn from_ser_buffer<T, R>(
+    sertype: &Sertype<T, R>,
+    kind: crate::internal::serdata::Kind,
+    buffer: &[u8],
+) -> *mut cyclonedds_sys::ddsi_serdata
+where
+    T: crate::Topicable,
+{
+    let Some((header, payload)) = buffer.split_at_checked(DDSI_RTPS_HEADER_SIZE) else {
+        return std::ptr::null_mut();
+    };
+
+    let Ok(header) = <[u8; DDSI_RTPS_HEADER_SIZE]>::try_from(header) else {
+        return std::ptr::null_mut();
+    };
+
+    from_payload(sertype, kind, header, payload)
 }
 
 fn copy_from_fragment(fragment_chain: &cyclonedds_sys::ddsi_rdata, size: usize) -> Option<Vec<u8>> {
@@ -164,7 +205,7 @@ fn copy_from_fragment(fragment_chain: &cyclonedds_sys::ddsi_rdata, size: usize) 
 
 ///
 /// ## Safety
-pub unsafe extern "C" fn from_ser<T>(
+pub unsafe extern "C" fn from_ser<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     kind: cyclonedds_sys::ddsi_serdata_kind,
     fragment_chain: *const cyclonedds_sys::ddsi_rdata,
@@ -173,7 +214,7 @@ pub unsafe extern "C" fn from_ser<T>(
 where
     T: crate::Topicable,
 {
-    let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
+    let sertype = unsafe { &mut *(sertype as *mut Sertype<T, R>) };
 
     if fragment_chain.is_null() {
         return std::ptr::null_mut();
@@ -200,7 +241,7 @@ where
 /// - `T` must match the expected deserialized type, and the deserialization must not violate any
 ///   invariants assumed by the type (e.g., panic during construction or interior mutability
 ///   issues).
-pub unsafe extern "C" fn from_ser_iov<T>(
+pub unsafe extern "C" fn from_ser_iov<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     kind: cyclonedds_sys::ddsi_serdata_kind,
     containers_len: cyclonedds_sys::ddsrt_msg_iovlen_t,
@@ -210,7 +251,7 @@ pub unsafe extern "C" fn from_ser_iov<T>(
 where
     T: crate::Topicable,
 {
-    let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
+    let sertype = unsafe { &mut *(sertype as *mut Sertype<T, R>) };
 
     crate::internal::serdata::Kind::try_from(kind).map_or(std::ptr::null_mut(), |kind| {
         let mut buffer: Vec<u8> = Vec::with_capacity(size);
@@ -248,8 +289,8 @@ where
     })
 }
 
-pub(crate) fn from_keyhash_with_mode<T>(
-    sertype: &Sertype<T>,
+pub(crate) fn from_keyhash_with_mode<T, R>(
+    sertype: &Sertype<T, R>,
     keyhash: &cyclonedds_sys::ddsi_keyhash,
     force_md5: bool,
 ) -> *mut cyclonedds_sys::ddsi_serdata
@@ -275,7 +316,7 @@ where
 
 ///
 /// ## Safety
-pub unsafe extern "C" fn from_keyhash<T>(
+pub unsafe extern "C" fn from_keyhash<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     keyhash: *const cyclonedds_sys::ddsi_keyhash,
 ) -> *mut cyclonedds_sys::ddsi_serdata
@@ -283,75 +324,85 @@ where
     T: crate::Topicable,
 {
     let force_md5 = T::FORCE_MD5_KEYHASH;
-    let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
+    let sertype = unsafe { &mut *(sertype as *mut Sertype<T, R>) };
     let keyhash = unsafe { &*keyhash };
 
-    from_keyhash_with_mode::<T>(sertype, keyhash, force_md5)
+    from_keyhash_with_mode::<T, R>(sertype, keyhash, force_md5)
 }
 
 /// Constructs a [`Serdata`] from a sample pointer, given a serialization kind.
 ///
+/// The sample is copied out of `sample`, because the [`Serdata`] outlives the
+/// call. For the raw representation that is one `memcpy` and no encoding, against
+/// a serialize plus deserialize for a serialized one.
+///
 /// ## Safety
-/// `sertype` must be a valid, non-null pointer to a heap-allocated [`Sertype`].
-pub unsafe extern "C" fn from_sample<T>(
+/// - `sertype` must be a valid, non-null pointer to a heap-allocated [`Sertype<T, R>`].
+/// - `sample` must be a non-null pointer to a fully-initialized sample in the representation `R`.
+pub unsafe extern "C" fn from_sample<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     kind: cyclonedds_sys::ddsi_serdata_kind,
     sample: *const std::ffi::c_void,
 ) -> *mut cyclonedds_sys::ddsi_serdata
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let sample = unsafe { &*(sample.cast::<InternalSample<'_, T>>()) };
-    match (crate::internal::serdata::Kind::try_from(kind), sample) {
-        (Ok(crate::internal::serdata::Kind::Data), InternalSample::SampleRef(sample)) => {
-            let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
-
-            let sample = SampleOrKey::new_sample((*sample).clone());
-            let serdata = Box::new(Serdata::new(sertype, sample));
-
-            Box::into_raw(serdata).cast()
-        }
-        (Ok(crate::internal::serdata::Kind::Data), InternalSample::Sample(sample)) => {
-            let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
-
-            let sample = SampleOrKey::new_sample(sample.clone());
-            let serdata = Box::new(Serdata::new(sertype, sample));
-
-            Box::into_raw(serdata).cast()
-        }
-        (Ok(crate::internal::serdata::Kind::Key), InternalSample::KeyRef(key)) => {
-            let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
-
-            let key = SampleOrKey::new_key((*key).clone());
-            let serdata = Box::new(Serdata::new(sertype, key));
-
-            Box::into_raw(serdata).cast()
-        }
-        (Ok(crate::internal::serdata::Kind::Key), InternalSample::Key(key)) => {
-            let sertype = unsafe { &mut *(sertype as *mut Sertype<T>) };
-
-            let key = SampleOrKey::new_key(key.clone());
-            let serdata = Box::new(Serdata::new(sertype, key));
-
-            Box::into_raw(serdata).cast()
-        }
-        _ => std::ptr::null_mut(),
+    if sertype.is_null() || sample.is_null() {
+        return std::ptr::null_mut();
     }
+
+    let Ok(kind) = crate::internal::serdata::Kind::try_from(kind) else {
+        return std::ptr::null_mut();
+    };
+
+    // SAFETY: guaranteed by the caller.
+    let Some(sample) = (unsafe { R::read_sample(kind, sample) }) else {
+        return std::ptr::null_mut();
+    };
+
+    let sertype = unsafe { &mut *(sertype as *mut Sertype<T, R>) };
+
+    into_serdata(sertype, sample)
 }
 
-/// TODO Unimplemented.
+/// Copy `size` bytes of this serdata's serialized form, from `offset`, into
+/// `buffer`.
+///
+/// Cyclone DDS uses this to put an existing serdata into a buffer it owns, which
+/// on the PSMX write path means a loan: `dds_writer_psmx_loan_from_serdata` asks
+/// for the four byte encapsulation header and then for the payload. Offsets are
+/// into the same bytes [`get_size`] reports the length of, header included.
+///
+/// Leaving this unimplemented is not harmless. The header goes into an
+/// uninitialized local and the payload into loaned memory, so a writer would
+/// publish whichever bytes happened to be there — and only to peers reached
+/// through PSMX, which is why it goes unnoticed until a second process reads it.
+///
 /// ## Safety
+/// - `serdata` must be a non-null pointer to a fully-initialized [`Serdata`].
+/// - `buffer` must be valid for writes of `size` bytes.
 pub unsafe extern "C" fn to_ser<T>(
     serdata: *const cyclonedds_sys::ddsi_serdata,
-    a: usize,
-    b: usize,
-    c: *mut std::ffi::c_void,
-) {
-    let args = (serdata, a, b, c);
-    eprintln!(
-        "serdata_ops::to_ser<{}>({args:?})",
-        std::any::type_name::<T>()
-    );
+    offset: usize,
+    size: usize,
+    buffer: *mut std::ffi::c_void,
+) where
+    T: crate::Topicable,
+{
+    let serdata = unsafe { &*serdata.cast::<Serdata<T>>() };
+
+    let Ok(serialized) = serdata.serialized() else {
+        return;
+    };
+
+    let Some(source) = serialized.get(offset..).and_then(|bytes| bytes.get(..size)) else {
+        return;
+    };
+
+    // SAFETY: guaranteed by the caller to be valid for `size` bytes, and the
+    // source is a distinct allocation owned by the serdata.
+    unsafe { std::ptr::copy_nonoverlapping(source.as_ptr(), buffer.cast::<u8>(), size) };
 }
 
 /// Write the serialized bytes of a sample to the provided
@@ -429,9 +480,9 @@ pub unsafe extern "C" fn to_ser_unref<T>(
 /// Returns `true` if a sample was present and copied, `false` otherwise.
 ///
 /// ## Safety
-/// - `sertype` must be a valid, non-null pointer to a heap-allocated [`Sertype`].
-/// - `sample` must be a valid, non-null pointer that can hold a value of size `T`.
-pub unsafe extern "C" fn to_sample<T>(
+/// - `sertype` must be a valid, non-null pointer to a heap-allocated [`Sertype<T, R>`].
+/// - `sample` must be valid for writes of one sample in the representation `R`, and aligned for it.
+pub unsafe extern "C" fn to_sample<T, R>(
     serdata: *const cyclonedds_sys::ddsi_serdata,
     sample: *mut std::ffi::c_void,
     _buffer: *mut *mut std::ffi::c_void,
@@ -439,37 +490,26 @@ pub unsafe extern "C" fn to_sample<T>(
 ) -> bool
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
     if sample.is_null() {
-        false
-    } else {
-        let serdata = unsafe { &mut *(serdata as *mut Serdata<T>) };
-
-        let sample = sample.cast::<InternalSample<'_, T>>();
-        match serdata.kind() {
-            crate::internal::serdata::Kind::Key => {
-                let data = InternalSample::Key(serdata.key().clone());
-                unsafe {
-                    sample.write(data);
-                }
-                true
-            }
-            crate::internal::serdata::Kind::Data => {
-                let data = InternalSample::Sample(serdata.sample().clone());
-                unsafe {
-                    sample.write(data);
-                }
-                true
-            }
-        }
+        return false;
     }
+
+    let serdata = unsafe { &mut *(serdata as *mut Serdata<T>) };
+
+    // SAFETY: the caller provides a buffer sized and aligned for the topic's
+    // representation.
+    unsafe { R::write_sample(serdata, sample) };
+
+    true
 }
 
 /// Create an untyped sertype based on provided typed [`Serdata`].
 ///
 /// ## Safety
-/// - `sertype` must be a valid, non-null pointer to a heap-allocated [`Sertype`].
-pub unsafe extern "C" fn to_untyped<T>(
+/// - `sertype` must be a valid, non-null pointer to a heap-allocated [`Sertype<T, R>`].
+pub unsafe extern "C" fn to_untyped<T, R>(
     serdata: *const cyclonedds_sys::ddsi_serdata,
 ) -> *mut cyclonedds_sys::ddsi_serdata
 where
@@ -477,45 +517,35 @@ where
 {
     let serdata = unsafe { &mut *(serdata as *mut Serdata<T>) };
 
-    let sertype = unsafe { &mut *(serdata.inner.type_ as *mut Sertype<T>) };
+    let sertype = unsafe { &mut *(serdata.inner.type_ as *mut Sertype<T, R>) };
 
     let mut untyped_serdata = Box::new(Serdata::new(
         sertype,
-        SampleOrKey::new_key(serdata.sample.as_ref().key().clone()),
+        SampleOrKey::new_key(serdata.key().clone()),
     ));
     untyped_serdata.inner.type_ = std::ptr::null_mut();
 
     Box::into_raw(untyped_serdata).cast()
 }
 
+/// The untyped counterpart of [`to_sample`], which Cyclone DDS reaches for when
+/// the serdata has been detached from its sertype.
 ///
 /// ## Safety
-pub unsafe extern "C" fn untyped_to_sample<T>(
+/// As [`to_sample`].
+pub unsafe extern "C" fn untyped_to_sample<T, R>(
     _sertype: *const cyclonedds_sys::ddsi_sertype,
     serdata: *const cyclonedds_sys::ddsi_serdata,
     sample: *mut std::ffi::c_void,
-    _buffer: *mut *mut std::ffi::c_void,
-    _buffer_limit: *mut std::ffi::c_void,
+    buffer: *mut *mut std::ffi::c_void,
+    buffer_limit: *mut std::ffi::c_void,
 ) -> bool
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    if sample.is_null() {
-        false
-    } else {
-        let serdata = unsafe { &mut *(serdata as *mut Serdata<T>) };
-
-        let sample = sample.cast::<InternalSample<'_, T>>();
-        match serdata.kind() {
-            crate::internal::serdata::Kind::Data => unsafe {
-                sample.write(InternalSample::Sample(serdata.sample().clone()));
-            },
-            crate::internal::serdata::Kind::Key => unsafe {
-                sample.write(InternalSample::Key(serdata.key().clone()));
-            },
-        }
-        true
-    }
+    // SAFETY: guaranteed by the caller.
+    unsafe { to_sample::<T, R>(serdata, sample, buffer, buffer_limit) }
 }
 
 /// Deallocate a [`Serdata`].
@@ -531,6 +561,16 @@ where
 {
     let serdata = unsafe { Box::from_raw(serdata.cast::<Serdata<T>>()) };
 
+    // A serdata built by `from_loaned_sample` holds a reference to the loan the
+    // application published, and this is where it goes back. The C library's own
+    // sertype releases it at the same point.
+    let loan = serdata.inner.loan;
+    if !loan.is_null() {
+        // SAFETY: the reference was handed to us in `from_loaned_sample` and has
+        // not been released since.
+        unsafe { crate::internal::ffi::dds_loaned_sample_unref(loan) };
+    }
+
     drop(serdata);
 }
 
@@ -545,8 +585,8 @@ where
 /// the null terminator.
 ///
 /// ## Safety
-/// - `_sertype` must be either the [`Sertype<T>`] for `serdata` or the compatible type supplied by
-///   Cyclone DDS when printing untyped serdata.
+/// - `_sertype` must be either the [`Sertype<T, R>`] for `serdata` or the compatible type supplied
+///   by Cyclone DDS when printing untyped serdata.
 /// - `serdata` must be a non-null pointer to a fully-initialized [`Serdata<T>`].
 /// - `buffer` must be non-null, valid for writes of `length` bytes, and `length` must be greater
 ///   than zero so the required trailing NULL terminator can be written.
@@ -601,41 +641,313 @@ pub unsafe extern "C" fn get_keyhash<T>(
         .inspect(|serdata_keyhash| keyhash.value.copy_from_slice(&serdata_keyhash.0));
 }
 
-/// TODO Unimplemented.
+/// How the payload of a PSMX loan is laid out in the loaned memory.
+///
+/// Distinct from the topic's [`Representation`][crate::representation], which is
+/// how a *topic* passes samples across the FFI boundary: this describes one loan
+/// that arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PayloadLayout {
+    /// The application's own in-memory representation of the sample.
+    ///
+    /// Only meaningful for types Cyclone DDS considers memcpy-safe, which a
+    /// Serde/CDR based [`Topicable`][crate::Topicable] is not.
+    Raw,
+    /// A CDR/XCDR1/XCDR2-serialized sample, *without* the four byte
+    /// encapsulation header. The header is carried out-of-band in the
+    /// `cdr_identifier` and `cdr_options` fields of the loan metadata.
+    Serialized,
+}
+
+/// Classify the state of a PSMX loan into the serdata [`Kind`] it carries and
+/// the [`PayloadLayout`] its payload uses.
+///
+/// Returns [`None`] for an uninitialized loan, which carries no payload at all,
+/// and for any state the C library may add in the future.
+///
+/// This mirrors `loaned_sample_state_to_serdata_kind` in the C library's default
+/// serdata implementation.
+pub(crate) const fn classify_loan(
+    state: cyclonedds_sys::dds_loaned_sample_state_t,
+) -> Option<(crate::internal::serdata::Kind, PayloadLayout)> {
+    use crate::internal::serdata::Kind;
+
+    match state {
+        cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_KEY => {
+            Some((Kind::Key, PayloadLayout::Raw))
+        }
+        cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_DATA => {
+            Some((Kind::Data, PayloadLayout::Raw))
+        }
+        cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_SERIALIZED_KEY => {
+            Some((Kind::Key, PayloadLayout::Serialized))
+        }
+        cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_SERIALIZED_DATA => {
+            Some((Kind::Data, PayloadLayout::Serialized))
+        }
+        // `DDS_LOANED_SAMPLE_STATE_UNITIALIZED` and anything the C library adds later.
+        _ => None,
+    }
+}
+
+/// Construct a [`Serdata`] from a sample the application built in memory the
+/// writer loaned it, taking over ownership of the loan.
+///
+/// Cyclone DDS calls this when a sample published through
+/// [`Writer::write_loaned`][crate::Writer::write_loaned] also needs a serdata —
+/// that is, when the loan came from the heap rather than a PSMX interface,
+/// because a serdata is what feeds the network and non-PSMX local readers. When
+/// PSMX carries the sample instead, Cyclone DDS goes through [`from_sample`] and
+/// this op is not involved.
+///
+/// It must also stay installed for a second reason: `dds_ensure_valid_psmx_instances`
+/// in the C library refuses to assign any PSMX Instance to a *writer* whose
+/// sertype leaves this op null, so nulling it out would disable shared-memory
+/// publishing altogether.
+///
+/// On success the loan is retained by the returned [`Serdata`] and released when
+/// that is freed, mirroring what the C library's own sertype does. Retaining it
+/// rather than releasing it here keeps `sample` — which points into the loan —
+/// valid for as long as anything can still reach it.
+///
 /// ## Safety
-pub unsafe extern "C" fn from_loaned_sample<T>(
+/// - `sertype` must be a non-null pointer to a fully-initialized [`Sertype<T, R>`].
+/// - `sample` must be a non-null pointer to a fully-initialized sample in the representation `R`.
+/// - `loan` must be non-null, and ownership of one reference to it passes to this function on
+///   success.
+pub unsafe extern "C" fn from_loaned_sample<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
-    a: cyclonedds_sys::ddsi_serdata_kind,
-    b: *const std::ffi::c_char,
-    c: *mut cyclonedds_sys::dds_loaned_sample,
-    d: bool,
+    kind: cyclonedds_sys::ddsi_serdata_kind,
+    sample: *const std::ffi::c_char,
+    loan: *mut cyclonedds_sys::dds_loaned_sample,
+    _will_require_cdr: bool,
 ) -> *mut cyclonedds_sys::ddsi_serdata
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let args = (sertype, a, b, c, d);
-    eprintln!(
-        "serdata_ops::from_loaned_sample<{}>({args:?})",
-        std::any::type_name::<T>()
-    );
-    std::ptr::null_mut()
+    if loan.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    // The loaned memory holds a sample in the topic's own representation, which
+    // is exactly what `from_sample` reads.
+    //
+    // SAFETY: guaranteed by the caller.
+    let serdata = unsafe { from_sample::<T, R>(sertype, kind, sample.cast()) };
+
+    if serdata.is_null() {
+        // Ownership of the loan stays with the caller on failure.
+        return std::ptr::null_mut();
+    }
+
+    // Take over the caller's reference. `free` drops it again.
+    //
+    // SAFETY: `from_sample` returned a non-null pointer to a freshly allocated
+    // `Serdata<T>`, which starts with its `ddsi_serdata`.
+    unsafe { &mut *serdata }.loan = loan;
+
+    serdata
 }
 
-/// TODO Unimplemented.
+/// Construct a [`Serdata`] from a sample received over a PSMX (shared memory)
+/// interface.
+///
+/// Cyclone DDS calls this from `dds_reader_store_loaned_sample` when a PSMX
+/// Instance delivers a sample, in place of the RTPS receive path. Returning a
+/// null pointer tells Cyclone DDS the sample could not be interpreted and makes
+/// it drop the sample, which is the correct outcome for a payload this binding
+/// cannot decode.
+///
+/// A [`PayloadLayout::Serialized`] payload is deserialized into an owned `T`.
+/// This avoids the network stack and its copies but is not zero-copy: the writer
+/// still encoded the sample and this decodes it.
+///
+/// A [`PayloadLayout::Raw`] payload is the receiving half of zero-copy and needs
+/// no decoding at all: the returned [`Serdata`] *stays* in the loaned memory and
+/// retains the loan, so the sample is never copied. It is only interpretable for
+/// a topic whose representation is [`ZeroCopy`][crate::representation::ZeroCopy],
+/// whose [`FixedSizeTopic`][crate::FixedSizeTopic] contract is what makes reading
+/// bytes another process wrote as a `T` sound. A raw loan arriving for any other
+/// topic is rejected: the payload would be some other binding's memory layout,
+/// with nothing valid to reinterpret it as.
+///
+/// Retaining the loan is what
+/// [`Reader::take_loaned`][crate::Reader::take_loaned] hands out, and mirrors
+/// what the C library's own sertype does. It also means the reader's history
+/// cache pins loaned memory for a zero-copy topic — history depth times sample
+/// size — whether or not the application reads through the borrowing API.
+///
 /// ## Safety
-pub unsafe extern "C" fn from_psmx<T>(
+/// - `sertype` must be a non-null pointer to a fully-initialized [`Sertype<T, R>`].
+/// - `loan` must be a non-null pointer to a fully-initialized `dds_loaned_sample` whose
+///   `metadata` is non-null, and whose `sample_ptr` is valid for reads of `metadata.sample_size`
+///   bytes when the state is one of the serialized variants, or of one sample in the
+///   representation `R` when it is one of the raw variants.
+/// - The loan must remain valid for the duration of this call. Ownership is not taken.
+pub unsafe extern "C" fn from_psmx<T, R>(
     sertype: *const cyclonedds_sys::ddsi_sertype,
     loan: *mut cyclonedds_sys::dds_loaned_sample,
 ) -> *mut cyclonedds_sys::ddsi_serdata
 where
     T: crate::Topicable,
+    R: Layout<T>,
 {
-    let args = (sertype, loan);
+    if sertype.is_null() || loan.is_null() {
+        return std::ptr::null_mut();
+    }
 
-    eprintln!(
-        "serdata_ops::from_psmx<{}>({args:?})",
-        std::any::type_name::<T>()
-    );
+    let loan = unsafe { &*loan };
 
-    std::ptr::null_mut()
+    if loan.metadata.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let metadata = unsafe { &*loan.metadata };
+
+    let Some((kind, payload)) = classify_loan(metadata.sample_state) else {
+        return std::ptr::null_mut();
+    };
+
+    let sertype = unsafe { &mut *(sertype as *mut Sertype<T, R>) };
+
+    let serdata = match payload {
+        PayloadLayout::Raw => {
+            // A raw payload must say it is unserialized. Anything else means the
+            // loan does not hold what its state claims, so there is no reason to
+            // believe the bytes are this topic's type; the C library's own sertype
+            // rejects it on the same grounds.
+            if metadata.cdr_identifier != cyclonedds_sys::RTPS_SAMPLE_NATIVE {
+                return std::ptr::null_mut();
+            }
+
+            // A PSMX implementation is only obliged to align loans for the types
+            // IDL maps to. Reading through a misaligned reference is undefined
+            // behaviour, so drop the sample instead.
+            if loan.sample_ptr.is_null() || !loan.sample_ptr.cast::<T>().is_aligned() {
+                return std::ptr::null_mut();
+            }
+
+            // A peer can share the type name and still disagree about its size.
+            // Reading a `T` out of a shorter loan would run past the end of it.
+            if usize::try_from(metadata.sample_size)
+                .is_ok_and(|size| size < std::mem::size_of::<T>())
+            {
+                return std::ptr::null_mut();
+            }
+
+            // SAFETY: guaranteed by the caller, and checked above to be non-null
+            // and aligned.
+            let Some(sample) = (unsafe { R::borrow_raw_loan(loan.sample_ptr) }) else {
+                // A serialized topic cannot keep borrowed memory, but it can still
+                // copy the sample out when its type is `FixedSize`. Otherwise the
+                // bytes are some other layout and there is nothing to read them as.
+                if T::RAW_LOANABLE.is_none() {
+                    return std::ptr::null_mut();
+                }
+
+                // SAFETY: `RAW_LOANABLE` proves `T: FixedSize`, so any bit pattern
+                // is a valid `T`; the pointer was checked above to be non-null,
+                // aligned and backed by at least `size_of::<T>()` bytes.
+                let sample = unsafe { loan.sample_ptr.cast::<T>().read() };
+                let serdata = into_serdata(
+                    sertype,
+                    match kind {
+                        crate::internal::serdata::Kind::Data => SampleOrKey::new_sample(sample),
+                        crate::internal::serdata::Kind::Key => {
+                            SampleOrKey::new_key(crate::Topicable::as_key(&sample))
+                        }
+                    },
+                );
+
+                // SAFETY: freshly allocated above.
+                let inner = unsafe { &mut *serdata };
+                inner.timestamp.v = metadata.timestamp;
+                inner.statusinfo = metadata.statusinfo;
+                return serdata;
+            };
+
+            // Keep the loan alive for as long as the serdata that points into it.
+            // Taking the reference before building the serdata means the loan is
+            // owned by exactly one thing at every point: on failure below there is
+            // nothing to release, because the serdata was never created.
+            //
+            // SAFETY: `loan` is a live loan on which the caller holds a reference,
+            // so taking another is valid; `serdata_ops::free` releases it again.
+            let serdata = unsafe {
+                crate::internal::ffi::dds_loaned_sample_ref(std::ptr::from_ref(loan).cast_mut());
+                Box::into_raw(Box::new(Serdata::new_loaned(sertype, kind, sample)))
+                    .cast::<cyclonedds_sys::ddsi_serdata>()
+            };
+
+            // SAFETY: freshly allocated above, and a `Serdata<T>` starts with its
+            // `ddsi_serdata`.
+            unsafe { &mut *serdata }.loan = std::ptr::from_ref(loan).cast_mut();
+
+            serdata
+        }
+        // SAFETY: guaranteed by the caller.
+        PayloadLayout::Serialized => match unsafe { serialized_payload(loan, metadata) } {
+            // The writing side splits the four byte encapsulation header off the
+            // serialized sample and stores it in the metadata (see
+            // `dds_writer_psmx_loan_from_serdata` in the C library), so pass it
+            // alongside rather than splicing it back on.
+            //
+            // NOTE: `sample_size` may include trailing alignment padding,
+            // indicated by the low bits of `cdr_options`. Trailing bytes past the
+            // end of the encoded sample are ignored by the deserializer, so there
+            // is nothing to trim.
+            Some((header, payload)) => from_payload(sertype, kind, header, payload),
+            None => return std::ptr::null_mut(),
+        },
+    };
+
+    if serdata.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    // Carry over the writer's timestamp and status info. Cyclone DDS reads
+    // `statusinfo` off the returned serdata immediately after this call to look
+    // up the writer, so this is not optional.
+    //
+    // SAFETY: the constructor returned a non-null pointer to a freshly allocated
+    // `Serdata<T>`, which starts with its `ddsi_serdata`.
+    let inner = unsafe { &mut *serdata };
+    inner.timestamp.v = metadata.timestamp;
+    inner.statusinfo = metadata.statusinfo;
+
+    serdata
+}
+
+/// The encapsulation header and payload of a serialized PSMX loan.
+///
+/// Both metadata fields hold the header bytes as loaded through a native
+/// `uint16_t`, so writing them back out in native byte order reproduces the
+/// original wire bytes on either endianness.
+///
+/// ## Safety
+/// `loan.sample_ptr` must be valid for reads of `metadata.sample_size` bytes.
+unsafe fn serialized_payload<'loan>(
+    loan: &'loan cyclonedds_sys::dds_loaned_sample,
+    metadata: &cyclonedds_sys::dds_psmx_metadata,
+) -> Option<([u8; DDSI_RTPS_HEADER_SIZE], &'loan [u8])> {
+    let sample_size = usize::try_from(metadata.sample_size).ok()?;
+
+    let [identifier_high, identifier_low] = metadata.cdr_identifier.to_ne_bytes();
+    let [options_high, options_low] = metadata.cdr_options.to_ne_bytes();
+    let header = [identifier_high, identifier_low, options_high, options_low];
+
+    if sample_size == 0 {
+        return Some((header, &[]));
+    }
+
+    if loan.sample_ptr.is_null() {
+        return None;
+    }
+
+    // SAFETY: guaranteed by the caller, `sample_ptr` is valid for reads of
+    // `sample_size` bytes, and lives at least as long as the loan.
+    let payload = unsafe { std::slice::from_raw_parts(loan.sample_ptr.cast::<u8>(), sample_size) };
+
+    Some((header, payload))
 }
