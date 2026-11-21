@@ -828,6 +828,14 @@ where
                 return std::ptr::null_mut();
             }
 
+            // A peer can share the type name and still disagree about its size.
+            // Reading a `T` out of a shorter loan would run past the end of it.
+            if usize::try_from(metadata.sample_size)
+                .is_ok_and(|size| size < std::mem::size_of::<T>())
+            {
+                return std::ptr::null_mut();
+            }
+
             // SAFETY: guaranteed by the caller, and checked above to be non-null
             // and aligned.
             let Some(sample) = (unsafe { R::borrow_raw_loan(loan.sample_ptr) }) else {

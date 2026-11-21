@@ -586,6 +586,34 @@ fn test_serdata_ops_from_psmx_raw_rejects_a_non_native_encoding() {
     let _ = Box::into_raw(sertype);
 }
 
+/// A raw loan smaller than the topic's type is rejected.
+///
+/// A peer can share the type name and still disagree about its size, and reading
+/// a whole sample out of a shorter loan would run past the end of it.
+#[test]
+fn test_serdata_ops_from_psmx_raw_rejects_a_short_loan() {
+    let sertype = raw_sertype();
+
+    let mut fixture = PsmxLoanFixture::from_payload(
+        vec![0; std::mem::size_of::<RawData>()],
+        cyclonedds_sys::dds_loaned_sample_state_DDS_LOANED_SAMPLE_STATE_RAW_DATA,
+    );
+    fixture.metadata.sample_size -= 1;
+
+    let result = unsafe {
+        serdata_ops::from_psmx::<RawData, ZeroCopy>(&raw const sertype.inner, fixture.as_ptr())
+    };
+    assert_eq!(
+        result,
+        std::ptr::null_mut(),
+        "a raw loan shorter than the sample must be dropped"
+    );
+
+    let mut sertype = sertype;
+    crate::internal::ffi::ddsi_sertype_unref(&mut sertype.inner);
+    let _ = Box::into_raw(sertype);
+}
+
 #[test]
 fn test_serdata_ops_from_psmx_raw_data() {
     let sample = RawData {
