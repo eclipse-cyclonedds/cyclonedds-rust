@@ -36,9 +36,9 @@ const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 ///
 /// It is a `cdylib` from this workspace, named as a dev-dependency of
 /// `eclipse-cyclonedds` purely so Cargo has built it by the time this runs. Cargo
-/// does not report where it put it, but in the ordinary build layout it sits
-/// alongside an ancestor of the test binary. Deliberately no broader search than
-/// that — a target directory can hold several builds made with different
+/// does not report where it put it, but it sits alongside an ancestor of the test
+/// binary, or in its own package directory under one. Deliberately no broader
+/// search than that — a target directory can hold several builds made with different
 /// `RUSTFLAGS`, and loading the wrong one fails confusingly. See the
 /// `psmx-tests` feature for which configurations these tests run in.
 fn plugin_path() -> std::path::PathBuf {
@@ -52,10 +52,29 @@ fn plugin_path() -> std::path::PathBuf {
 
     let executable = std::env::current_exe().expect("could not determine the test executable path");
 
+    // Newer Cargo gives every package its own `build/<package>/<hash>/out`, so the
+    // plugin is no longer beside an ancestor but in a sibling package directory.
+    // shortcut: takes the most recently built copy, which is wrong if an older
+    // build is the current one; ask Cargo instead once artifact dependencies are
+    // stable.
+    let in_package_directory = |build: &std::path::Path| {
+        std::fs::read_dir(build.join("eclipse-cyclonedds-psmx-test"))
+            .ok()?
+            .filter_map(|hash| Some(hash.ok()?.path().join("out").join(file_name)))
+            .filter(|candidate| candidate.is_file())
+            .max_by_key(|candidate| candidate.metadata().and_then(|file| file.modified()).ok())
+    };
+
     executable
         .ancestors()
-        .map(|directory| directory.join(file_name))
-        .find(|candidate| candidate.is_file())
+        .find_map(|directory| {
+            let beside = directory.join(file_name);
+            if beside.is_file() {
+                Some(beside)
+            } else {
+                in_package_directory(directory)
+            }
+        })
         .unwrap_or_else(|| {
             panic!(
                 "could not find the PSMX test plugin ({file_name}) alongside any ancestor of {}",
