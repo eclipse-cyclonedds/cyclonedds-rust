@@ -276,7 +276,7 @@ fn zero_copy_topic<'d, 'p, T>(
 where
     T: dds::FixedSizeTopic,
 {
-    dds::builder::TopicBuilder::<T, dds::ZeroCopy>::new(participant, topic_name).build()
+    dds::builder::TopicBuilder::<T, dds::ZeroCopy>::zero_copy(participant, topic_name).build()
 }
 
 /// An ordinary topic, which travels as CDR even over PSMX.
@@ -305,6 +305,43 @@ fn psmx_delivers_a_serialized_sample() -> dds::Result<()> {
     writer.write(&sample)?;
     expect_one_sample(&reader, &sample);
 
+    assert_eq!(trace.states(&topic_name), ["SERIALIZED_DATA"]);
+    Ok(())
+}
+
+/// A zero-copy reader still accepts what a serialized writer sends.
+///
+/// Only this direction mixes: a zero-copy writer sends raw memory, which a reader
+/// on a serialized topic has no way to interpret.
+#[test]
+fn psmx_zero_copy_reader_accepts_a_serialized_writer() -> dds::Result<()> {
+    let trace = Trace::new();
+    let topic_name = common::topic::unique_name();
+    let writer_domain = dds::Domain::new_with_xml_config(
+        common::domain::unique_id(),
+        &config(0x0f, "mixed-writer", &trace),
+    )?;
+    let reader_domain = dds::Domain::new_with_xml_config(
+        common::domain::unique_id(),
+        &config(0x0f, "mixed-reader", &trace),
+    )?;
+
+    let reader_participant = dds::Participant::new(&reader_domain)?;
+    let reader_topic = zero_copy_topic::<Reading>(&reader_participant, &topic_name)?;
+    let reader = dds::Reader::new(&reader_topic)?;
+
+    let writer_participant = dds::Participant::new(&writer_domain)?;
+    let writer_topic = dds::Topic::<Reading>::new(&writer_participant, &topic_name)?;
+    let writer = dds::Writer::new(&writer_topic)?;
+
+    let expected = Reading {
+        sensor_id: 3,
+        sequence: 5,
+        value: 8.0,
+    };
+    writer.write(&expected)?;
+
+    expect_one_sample(&reader, &expected);
     assert_eq!(trace.states(&topic_name), ["SERIALIZED_DATA"]);
     Ok(())
 }

@@ -89,7 +89,7 @@ where
     /// #     id: u32,
     /// #     pixels: [u8; 32],
     /// # }
-    /// # let topic = TopicBuilder::<Frame, cyclonedds::ZeroCopy>::new(&participant, "Frames").build()?;
+    /// # let topic = TopicBuilder::<Frame, cyclonedds::ZeroCopy>::zero_copy(&participant, "Frames").build()?;
     /// # let writer = Writer::new(&topic)?;
     /// let mut loan = writer.loan()?;
     ///
@@ -257,7 +257,7 @@ where
     /// #     sequence: u32,
     /// #     value: f64,
     /// # }
-    /// # let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings")
+    /// # let topic = TopicBuilder::<Reading, ZeroCopy>::zero_copy(&participant, "Readings")
     /// #     .build()?;
     /// # let reader = Reader::new(&topic)?;
     /// # let writer = Writer::new(&topic)?;

@@ -294,7 +294,7 @@ struct Reading {
 // Name the representation to opt the topic in. Without it the topic behaves like
 // any other, because Rust cannot tell from a `T: Topicable` bound alone whether
 // `T` is also `FixedSize`. Naming `ZeroCopy` is what requires it.
-let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings").build()?;
+let topic = TopicBuilder::<Reading, ZeroCopy>::zero_copy(&participant, "Readings").build()?;
 let writer = Writer::new(&topic)?;
 
 // Build the sample in the shared memory itself, and publish it from there.
@@ -325,8 +325,11 @@ they do, the writer's PSMX Instance cannot reuse the memory they point at, and a
 writer whose pool runs dry has to wait.
 
 Both ends must opt in — a reader only accepts a raw payload on a topic that
-agreed to the raw representation. Endpoints that did not opt in still interoperate
-normally, exchanging CDR as before, and a zero-copy topic falls back to CDR
+agreed to the raw representation. A zero-copy writer sends raw memory over PSMX
+whoever is listening, so a reader that left the same topic serialized cannot use
+what arrives and the sample is lost: give every endpoint that shares a PSMX
+Instance on a topic the same representation. The other way round is fine, since a
+zero-copy reader still accepts CDR, and a zero-copy topic falls back to CDR
 whenever PSMX is not usable for a given pair. `Writer::loan` also works with no
 PSMX interface configured, borrowing heap memory instead; the programming model is
 the same, the benefit is not.

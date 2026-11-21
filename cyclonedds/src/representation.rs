@@ -3,7 +3,7 @@
 //! Every [`Topic`](crate::Topic) carries one of these markers as a type
 //! parameter, which decides how its samples travel and what its endpoints can
 //! do. [`Serialized`] is the default and needs no mention; [`ZeroCopy`] is asked
-//! for by naming it — `Topic::<Frame, ZeroCopy>::new(..)` — and carries through to
+//! for by naming it — `TopicBuilder::<Frame, _>::zero_copy(..)` — and carries through to
 //! the [`Writer`](crate::Writer) and [`Reader`](crate::Reader) built from the
 //! topic.
 //!

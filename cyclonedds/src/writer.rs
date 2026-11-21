@@ -1112,7 +1112,7 @@ where
     /// #     sequence: u32,
     /// #     value: f64,
     /// # }
-    /// let topic = TopicBuilder::<Reading, ZeroCopy>::new(&participant, "Readings").build()?;
+    /// let topic = TopicBuilder::<Reading, ZeroCopy>::zero_copy(&participant, "Readings").build()?;
     /// let writer = Writer::new(&topic)?;
     ///
     /// let mut loan = writer.loan()?;

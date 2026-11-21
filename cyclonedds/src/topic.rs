@@ -41,16 +41,11 @@ where
     phantom_representation: std::marker::PhantomData<R>,
 }
 
-#[allow(
-    private_bounds,
-    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
-              `Serialized` and `ZeroCopy`"
-)]
-impl<'d, 'p, 'q, 'n, T, R> TopicBuilder<'d, 'p, 'q, 'n, T, R>
+// The constructors name their representation rather than being generic over it,
+// so that an unannotated `TopicBuilder::new(..)` or `Topic::new(..)` still infers.
+impl<'d, 'p, 'n, T> TopicBuilder<'d, 'p, '_, 'n, T>
 where
     T: crate::Topicable,
-    R: Layout<T>,
-    R: crate::representation::Representation,
 {
     /// Creates a new [`TopicBuilder`] for the given [`Participant`].
     ///
@@ -81,7 +76,61 @@ where
             phantom_representation: std::marker::PhantomData,
         }
     }
+}
 
+impl<'d, 'p, 'n, T> TopicBuilder<'d, 'p, '_, 'n, T, crate::representation::ZeroCopy>
+where
+    T: crate::FixedSizeTopic,
+{
+    /// Creates a new [`TopicBuilder`] for a zero-copy topic.
+    ///
+    /// [`ZeroCopy`](crate::representation::ZeroCopy) as the topic's
+    /// representation is what asks Cyclone DDS to move its samples as raw memory,
+    /// and so what makes [`Writer::loan`](crate::Writer::loan) available on its
+    /// writers. It requires [`FixedSizeTopic`](crate::FixedSizeTopic), whose
+    /// contract is what makes handing the type's bytes to another process sound.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Frame {
+    /// #     pixels: [u8; 16],
+    /// # }
+    /// let topic = TopicBuilder::<Frame, _>::zero_copy(&participant, "Frames").build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub const fn zero_copy(participant: &'p Participant<'d>, topic_name: &'n str) -> Self {
+        Self {
+            participant,
+            topic_name,
+            qos: None,
+            listener: None,
+            phantom_representation: std::marker::PhantomData,
+        }
+    }
+}
+
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<'d, 'p, 'q, T, R> TopicBuilder<'d, 'p, 'q, '_, T, R>
+where
+    T: crate::Topicable,
+    R: Layout<T>,
+    R: crate::representation::Representation,
+{
     /// Sets the [`QoS`](crate::QoS) for this topic builder.
     ///
     /// # Examples
@@ -204,16 +253,9 @@ where
     }
 }
 
-#[allow(
-    private_bounds,
-    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
-              `Serialized` and `ZeroCopy`"
-)]
-impl<'d, 'p, T, R> Topic<'d, 'p, T, R>
+impl<'d, 'p, T> Topic<'d, 'p, T>
 where
     T: crate::Topicable,
-    R: Layout<T>,
-    R: crate::representation::Representation,
 {
     /// Creates a new `Topic` with the given name under `participant` using
     /// default [`QoS`](crate::QoS) and no
@@ -222,30 +264,9 @@ where
     /// The topic name identifies the communication channel. Writers and
     /// readers match when they share the same name and compatible type.
     ///
-    /// # Zero copy
-    ///
-    /// Naming [`ZeroCopy`](crate::representation::ZeroCopy) as the topic's
-    /// representation is what asks Cyclone DDS to move its samples as raw memory,
-    /// and so what makes [`Writer::loan`](crate::Writer::loan) and
-    /// [`Reader::take_loaned`](crate::Reader::take_loaned) available on its
-    /// endpoints. It requires [`FixedSizeTopic`](crate::FixedSizeTopic), whose
-    /// contract is what makes handing the type's bytes to another process sound.
-    ///
-    /// ```
-    /// # use cyclonedds::{Domain, Participant, Topic, ZeroCopy};
-    /// # let domain = Domain::default();
-    /// # let participant = Participant::new(&domain)?;
-    /// # #[derive(
-    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
-    /// #     Clone, Copy, Debug, Default,
-    /// # )]
-    /// # #[repr(C)]
-    /// # struct Frame {
-    /// #     pixels: [u8; 16],
-    /// # }
-    /// let topic = Topic::<Frame, ZeroCopy>::new(&participant, "Frames")?;
-    /// # Ok::<_, cyclonedds::Error>(())
-    /// ```
+    /// A zero-copy topic comes from
+    /// [`TopicBuilder::zero_copy`](crate::builder::TopicBuilder::zero_copy)
+    /// instead.
     ///
     /// # Errors
     ///
@@ -299,10 +320,22 @@ where
     pub const fn builder<'q, 'n>(
         participant: &'p Participant<'d>,
         topic_name: &'n str,
-    ) -> TopicBuilder<'d, 'p, 'q, 'n, T, R> {
+    ) -> TopicBuilder<'d, 'p, 'q, 'n, T> {
         TopicBuilder::new(participant, topic_name)
     }
+}
 
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<T, R> Topic<'_, '_, T, R>
+where
+    T: crate::Topicable,
+    R: Layout<T>,
+    R: crate::representation::Representation,
+{
     /// Sets the [`TopicListener`](crate::TopicListener) on this topic,
     /// replacing any previously set listener.
     ///
@@ -639,7 +672,7 @@ mod tests {
         let listener = crate::TopicListener::<RawData, ZeroCopy>::new()
             .with_inconsistent_topic(on_zero_copy_topic);
 
-        let _ = Topic::<RawData, ZeroCopy>::builder(&participant, &topic_name)
+        let _ = TopicBuilder::zero_copy(&participant, &topic_name)
             .with_listener(listener)
             .build()
             .unwrap();

@@ -531,7 +531,7 @@ where
     /// # struct Frame {
     /// #     pixels: [u8; 16],
     /// # }
-    /// let topic = TopicBuilder::<Frame, ZeroCopy>::new(&participant, "Frames").build()?;
+    /// let topic = TopicBuilder::<Frame, ZeroCopy>::zero_copy(&participant, "Frames").build()?;
     /// let reader = Reader::new(&topic)?;
     /// let writer = Writer::new(&topic)?;
     ///
