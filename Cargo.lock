@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-cyclonedds-psmx-test"
-version = "0.0.4"
+version = "11.1.0"
 dependencies = [
  "eclipse-cyclonedds-sys",
 ]

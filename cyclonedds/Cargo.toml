@@ -33,7 +33,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 uuid = { version = "1.19.0", features = ["v4"] }
 # Present so Cargo builds the PSMX plugin `cdylib` before `tests/psmx.rs`, which
 # loads it through Cyclone DDS at runtime. Nothing calls into it directly.
-eclipse-cyclonedds-psmx-test = { version = "0.0.4", path = "../cyclonedds-psmx-test" }
+# No `version`: a path-only dev-dependency is dropped from the published
+# manifest, which this unpublished crate needs.
+eclipse-cyclonedds-psmx-test = { path = "../cyclonedds-psmx-test" }
 
 [[test]]
 name = "psmx"
