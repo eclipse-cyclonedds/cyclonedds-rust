@@ -387,6 +387,34 @@ fn psmx_serialized_reader_accepts_a_zero_copy_writer() -> dds::Result<()> {
     Ok(())
 }
 
+/// A zero-copy reader is an entity like any other, so a `WaitSet` can wake on it.
+#[test]
+fn psmx_zero_copy_reader_attaches_to_a_waitset() -> dds::Result<()> {
+    use dds::entity::Entity as _;
+
+    // Shared memory plays no part in this, so one ordinary domain will do.
+    let domain = dds::Domain::new(common::domain::unique_id())?;
+    let participant = dds::Participant::new(&domain)?;
+    let topic = zero_copy_topic::<Reading>(&participant, &common::topic::unique_name())?;
+    let reader = dds::Reader::new(&topic)?;
+    let writer = dds::Writer::new(&topic)?;
+
+    reader.set_status_mask(dds::Status::DataAvailable)?;
+    let mut waitset = dds::WaitSet::<()>::new(&participant)?;
+    waitset.attach(&reader, None)?;
+
+    let expected = Reading {
+        sensor_id: 2,
+        sequence: 3,
+        value: 5.0,
+    };
+    writer.write(&expected)?;
+
+    waitset.wait(TIMEOUT.try_into()?)?;
+    expect_one_sample(&reader, &expected);
+    Ok(())
+}
+
 /// Several samples of differing serialized length arrive, in order.
 ///
 /// Length matters: the writing side splits the four byte encapsulation header off
