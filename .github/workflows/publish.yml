@@ -1,0 +1,58 @@
+name: publish crates
+
+on:
+  push:
+    tags: ["*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-io-publish
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/check.yml
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: true
+
+      - name: verify release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+
+          with open("Cargo.toml", "rb") as manifest:
+              version = tomllib.load(manifest)["workspace"]["package"]["version"]
+          tag = os.environ["RELEASE_TAG"]
+          if tag != version:
+              raise SystemExit(f"Tag {tag!r} must match workspace version {version}")
+          PY
+
+      - name: set up nix
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+
+      - name: set up nix devshell
+        run: nix develop -c cargo --version
+
+      - name: publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::Set the CARGO_REGISTRY_TOKEN repository secret before publishing."
+            exit 1
+          fi
+          nix develop -c cargo publish --package eclipse-cyclonedds-sys
+          nix develop -c cargo publish --package eclipse-cyclonedds-macros
+          nix develop -c cargo publish --package eclipse-cyclonedds
