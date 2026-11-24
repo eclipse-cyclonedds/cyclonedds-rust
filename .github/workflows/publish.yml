@@ -67,7 +67,7 @@ jobs:
           from pathlib import Path
 
           package = f"eclipse-cyclonedds-sys-{os.environ['RELEASE_TAG']}"
-          archive = Path("target/package") / f"{package}.crate"
+          archive = Path("target/package/tmp-crate") / f"{package}.crate"
           header = f"{package}/vendor/cyclonedds-c/src/core/ddsc/include/dds/dds.h"
           with tarfile.open(archive, "r:gz") as crate:
               if not any(member.name == header and member.isfile() and member.size > 0
