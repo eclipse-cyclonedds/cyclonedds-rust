@@ -95,6 +95,14 @@ pub trait Topicable:
     /// MD5 otherwise. Set this to `true` to force MD5 unconditionally.
     const FORCE_MD5_KEYHASH: bool = false;
 
+    /// Proof that `Self` is [`FixedSize`], when it is.
+    ///
+    /// Lets an endpoint on a serialized topic still read a sample a zero-copy
+    /// writer sent as raw memory. `derive(Topicable)` fills it in; a hand-written
+    /// impl leaves the default and such samples are dropped.
+    #[doc(hidden)]
+    const RAW_LOANABLE: Option<__private::RawLoanable<Self>> = None;
+
     /// Constructs a default instance of `Self` from a key.
     ///
     /// Used to materialize a full sample from a key-only notification. Fields
@@ -120,6 +128,216 @@ pub trait Topicable:
             .map_or(full_type_path, |(_, type_path)| type_path)
     }
 }
+
+/// A type whose in-memory representation may be shared verbatim with another
+/// process.
+///
+/// This is the building block for zero-copy transfer. It composes: a struct is
+/// [`FixedSize`] when it is `#[repr(C)]` and every one of its fields is, which is
+/// what [`derive(FixedSize)`](cyclonedds_macros::FixedSize) checks. Deriving it is
+/// the only way to get it without writing `unsafe`.
+///
+/// A [`Topicable`] that is also [`FixedSize`] is automatically a
+/// [`FixedSizeTopic`], which is what
+/// [`ZeroCopy`](crate::representation::ZeroCopy) representation
+/// requires.
+///
+/// # What is implemented
+///
+/// The integer and floating-point types that IDL maps to — [`u8`], [`u16`],
+/// [`u32`], [`u64`], [`i8`], [`i16`], [`i32`], [`i64`], [`f32`], [`f64`] — and
+/// arrays of them.
+///
+/// Deliberately **not** implemented, because these have bit patterns that are not
+/// valid values and the bytes may come from another process which this binding
+/// cannot police:
+///
+/// - [`bool`], where anything other than 0 or 1 is invalid. Use [`u8`].
+/// - [`char`], which is a Unicode scalar value, not IDL's one-byte `char`. Use [`u8`].
+/// - enums, including [`Option`] and [`Result`], where only listed discriminants are valid.
+/// - [`u128`] and [`i128`], which have no IDL equivalent and are 16-byte aligned.
+/// - [`usize`] and [`isize`], whose width differs between peers.
+///
+/// # Safety
+///
+/// Cyclone DDS will `memcpy` `size_of::<Self>()` bytes of a value into memory
+/// that other processes read, and will present memory written by other processes
+/// to be read as a `Self`. Implementing this by hand asserts all of the
+/// following.
+///
+/// - `Self` is `#[repr(C)]`, so its layout is stable and matches what a C compiler would
+///   produce for the equivalent IDL type. A `repr(Rust)` type has no layout guarantee at all.
+/// - `Self` contains no pointers, references, or indirection of any kind. The [`Copy`] supertrait
+///   rules out `String`, `Vec` and `Box` for you, but not a raw pointer field.
+/// - Every bit pattern of `size_of::<Self>()` bytes is a valid `Self`, including all zeroes.
+/// - `Self` has no padding bytes. Padding is not an unsoundness in itself, but it would be sent
+///   uninitialized, so it leaks whatever happened to be in those bytes.
+/// - `align_of::<Self>()` is at most 8, since a PSMX implementation is only required to align
+///   loaned memory for the types IDL maps to.
+///
+/// Prefer the derive, which checks every one of those except the first half of
+/// the second (raw pointers) mechanically.
+///
+/// # Examples
+///
+/// ```
+/// use cyclonedds::FixedSize;
+///
+/// #[derive(FixedSize, Clone, Copy)]
+/// #[repr(C)]
+/// struct Position {
+///     x: f64,
+///     y: f64,
+/// }
+///
+/// // Composes: a `repr(C)` struct of `FixedSize` fields is itself `FixedSize`.
+/// #[derive(FixedSize, Clone, Copy)]
+/// #[repr(C)]
+/// struct Pose {
+///     position: Position,
+///     heading: f64,
+///     tag: [u8; 8],
+/// }
+/// ```
+///
+/// # Rejected at compile time
+///
+/// Padding, because those bytes would travel uninitialized. A `u8` followed by a
+/// `u64` leaves a seven byte hole:
+///
+/// ```compile_fail
+/// use cyclonedds::FixedSize;
+///
+/// #[derive(FixedSize, Clone, Copy)]
+/// #[repr(C)]
+/// struct Padded {
+///     small: u8,
+///     large: u64,
+/// }
+/// ```
+///
+/// A field whose type is not itself shareable — here a [`bool`], for which most
+/// bit patterns are invalid:
+///
+/// ```compile_fail
+/// use cyclonedds::FixedSize;
+///
+/// #[derive(FixedSize, Clone, Copy)]
+/// #[repr(C)]
+/// struct Flagged {
+///     flag: bool,
+/// }
+/// ```
+///
+/// And an over-aligned type, which a PSMX implementation need not align a loan
+/// for:
+///
+/// ```compile_fail
+/// use cyclonedds::FixedSize;
+///
+/// #[derive(FixedSize, Clone, Copy)]
+/// #[repr(C, align(16))]
+/// struct OverAligned {
+///     value: u64,
+/// }
+/// ```
+#[allow(
+    unsafe_code,
+    reason = "implementors promise a layout contract the compiler cannot fully check"
+)]
+pub unsafe trait FixedSize: Copy {}
+
+/// Implement [`FixedSize`] for types whose every bit pattern is a valid value and
+/// whose layout is fixed by the platform ABI.
+macro_rules! fixed_size {
+    ($($type:ty),* $(,)?) => {
+        $(
+            #[allow(
+                unsafe_code,
+                reason = "a primitive with no invalid bit patterns and a stable ABI layout"
+            )]
+            // SAFETY: an integer or floating-point primitive is `repr`-stable, holds
+            // no indirection, has no padding, is valid for every bit pattern, and is
+            // aligned to at most its own size, which here is at most 8.
+            unsafe impl FixedSize for $type {}
+        )*
+    };
+}
+
+fixed_size!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64);
+
+#[allow(
+    unsafe_code,
+    reason = "an array adds no layout of its own beyond that of its element type"
+)]
+// SAFETY: `[T; N]` is `N` contiguous `T` with no padding between elements and none
+// at the end, and it inherits `T`'s alignment. So it holds whenever it holds for
+// `T`.
+unsafe impl<T, const N: usize> FixedSize for [T; N] where T: FixedSize {}
+
+/// A [`Topicable`] whose in-memory representation may be shared verbatim with
+/// other processes, enabling zero-copy transfer.
+///
+/// You never implement this, and it is safe precisely because of that: it holds
+/// automatically for any [`Topicable`] that is also [`FixedSize`], and the blanket
+/// implementation means it cannot be asserted any other way. Every guarantee it
+/// relies on belongs to [`FixedSize`], which is the unsafe half. Put
+/// [`derive(FixedSize)`](cyclonedds_macros::FixedSize) on the type and this
+/// follows.
+///
+/// Implementing it changes nothing on its own. Opt a topic in with
+/// [`ZeroCopy`](crate::representation::ZeroCopy) representation,
+/// then borrow buffers with [`Writer::loan`](crate::Writer::loan).
+///
+/// # Examples
+///
+/// ```
+/// use cyclonedds::{FixedSize, Topicable};
+///
+/// #[derive(Topicable, FixedSize, serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default)]
+/// #[repr(C)]
+/// struct Reading {
+///     #[dds(key)]
+///     sensor_id: u32,
+///     sequence: u32,
+///     value: f64,
+/// }
+///
+/// fn assert_zero_copy_capable<T: cyclonedds::FixedSizeTopic>() {}
+/// assert_zero_copy_capable::<Reading>();
+/// ```
+pub trait FixedSizeTopic: Topicable + FixedSize {}
+
+/// Support for `derive(Topicable)`, which has to find out whether the type is
+/// also [`FixedSize`] without being able to name that as a bound.
+#[doc(hidden)]
+pub mod __private {
+    /// Proof that `T` is [`FixedSize`](super::FixedSize): the only value of this
+    /// type is the one [`FixedSizeProbe`] hands out under that bound.
+    #[derive(Debug, Clone, Copy)]
+    pub struct RawLoanable<T>(std::marker::PhantomData<fn() -> T>);
+
+    /// Resolves `RAW_LOANABLE` to the inherent constant when `T` is `FixedSize`,
+    /// and to the [`NotFixedSize`] default otherwise.
+    #[derive(Debug)]
+    pub struct FixedSizeProbe<T>(std::marker::PhantomData<T>);
+
+    impl<T: super::FixedSize> FixedSizeProbe<T> {
+        pub const RAW_LOANABLE: Option<RawLoanable<T>> =
+            Some(RawLoanable(std::marker::PhantomData));
+    }
+
+    pub trait NotFixedSize {
+        type Sample;
+        const RAW_LOANABLE: Option<RawLoanable<Self::Sample>> = None;
+    }
+
+    impl<T> NotFixedSize for FixedSizeProbe<T> {
+        type Sample = T;
+    }
+}
+
+impl<T> FixedSizeTopic for T where T: Topicable + FixedSize {}
 
 /// Evaluates to the [`Key`](Topicable::Key) type associated with the
 /// [`Topicable`] type `T`.

@@ -181,7 +181,11 @@ where
     ///     QueryCondition::new(&reader, state::sample::Fresh, |sample: &Data| sample.x > 10)?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn new(reader: &'r Reader<'d, 'p, 't, T>, mask: State, _: F) -> Result<Self> {
+    pub fn new<R: crate::representation::Representation>(
+        reader: &'r Reader<'d, 'p, 't, T, R>,
+        mask: State,
+        _: F,
+    ) -> Result<Self> {
         let _ = Self::IS_PROVIDED_CALLBACK_ZERO_SIZED;
         let inner = ffi::dds_create_querycondition::<T, F, Self>(reader.inner, mask.bits())?;
         Ok(Self {

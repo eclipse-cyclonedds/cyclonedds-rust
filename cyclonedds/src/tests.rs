@@ -28,6 +28,47 @@ pub mod topic {
 
     use uuid::Uuid;
 
+    /// A topic type laid out so Cyclone DDS may move it as raw memory.
+    ///
+    /// `#[repr(C)]`, 16 bytes with no padding, valid for every bit pattern, 8-byte
+    /// aligned.
+    #[derive(
+        serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash,
+    )]
+    #[repr(C)]
+    pub struct RawData {
+        pub id: u32,
+        pub sequence: u32,
+        pub payload: [u8; 8],
+    }
+
+    // NOTE: hand-written rather than derived because `derive(FixedSize)` emits
+    // `::cyclonedds::` paths, which do not resolve from within this crate. The derive
+    // itself is exercised from `tests/psmx.rs`, which is a separate crate.
+    //
+    // SAFETY: `repr(C)`, only integers and a byte array, so no padding, no
+    // indirection, valid for every bit pattern, and 4-byte aligned.
+    #[allow(
+        unsafe_code,
+        reason = "the memcpy-safe contract cannot be validated by the compiler"
+    )]
+    unsafe impl crate::topicable::FixedSize for RawData {}
+
+    impl crate::Topicable for RawData {
+        type Key = u32;
+
+        fn from_key(key: &Self::Key) -> Self {
+            Self {
+                id: *key,
+                ..Default::default()
+            }
+        }
+
+        fn as_key(&self) -> Self::Key {
+            self.id
+        }
+    }
+
     /// A minimal [`crate::Topicable`] type used as a test topic payload.
     ///
     /// The composite key `(x, y)` uniquely identifies each instance.

@@ -1,0 +1,5 @@
+error: `FixedSize` cannot be derived for a generic type: its layout has to be fixed
+ --> tests/compilation-failure/fixed_size_generic.rs:6:12
+  |
+6 | struct Data<T> {
+  |            ^

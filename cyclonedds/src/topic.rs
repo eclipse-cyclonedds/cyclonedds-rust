@@ -1,6 +1,8 @@
 use crate::internal::ffi;
+use crate::internal::layout::Layout;
 use crate::internal::sertype::Sertype;
 use crate::internal::traits::AsFfi;
+use crate::representation::Serialized;
 use crate::{Participant, Result};
 
 /// A typed communication channel.
@@ -15,28 +17,33 @@ use crate::{Participant, Result};
 /// [`QoS`](crate::QoS) and [`listener`](crate::listener::TopicListener)
 /// configuration.
 #[derive(Debug)]
-pub struct Topic<'domain, 'participant, T>
+pub struct Topic<'domain, 'participant, T, R = Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     pub(crate) inner: cyclonedds_sys::dds_entity_t,
-    phantom_type: std::marker::PhantomData<T>,
+    phantom_type: std::marker::PhantomData<(T, R)>,
     phantom_participant: std::marker::PhantomData<&'participant Participant<'domain>>,
 }
 
 /// Builder for [`Topic<T>`] (accessible via [`Topic::builder`]).
 #[derive(Debug)]
-pub struct TopicBuilder<'domain, 'participant, 'qos, 'name, T>
+pub struct TopicBuilder<'domain, 'participant, 'qos, 'name, T, R = Serialized>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     participant: &'participant Participant<'domain>,
     topic_name: &'name str,
     qos: Option<&'qos crate::QoS>,
-    listener: Option<crate::TopicListener<T>>,
+    listener: Option<crate::TopicListener<T, R>>,
+    phantom_representation: std::marker::PhantomData<R>,
 }
 
-impl<'d, 'p, 'q, 'n, T> TopicBuilder<'d, 'p, 'q, 'n, T>
+// The constructors name their representation rather than being generic over it,
+// so that an unannotated `TopicBuilder::new(..)` or `Topic::new(..)` still infers.
+impl<'d, 'p, 'n, T> TopicBuilder<'d, 'p, '_, 'n, T>
 where
     T: crate::Topicable,
 {
@@ -66,9 +73,64 @@ where
             topic_name,
             qos: None,
             listener: None,
+            phantom_representation: std::marker::PhantomData,
         }
     }
+}
 
+impl<'d, 'p, 'n, T> TopicBuilder<'d, 'p, '_, 'n, T, crate::representation::ZeroCopy>
+where
+    T: crate::FixedSizeTopic,
+{
+    /// Creates a new [`TopicBuilder`] for a zero-copy topic.
+    ///
+    /// [`ZeroCopy`](crate::representation::ZeroCopy) as the topic's
+    /// representation is what asks Cyclone DDS to move its samples as raw memory,
+    /// and so what makes [`Writer::loan`](crate::Writer::loan) available on its
+    /// writers. It requires [`FixedSizeTopic`](crate::FixedSizeTopic), whose
+    /// contract is what makes handing the type's bytes to another process sound.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cyclonedds::builder::TopicBuilder;
+    /// # use cyclonedds::{Domain, Participant};
+    /// # let domain = Domain::default();
+    /// # let participant = Participant::new(&domain)?;
+    /// # #[derive(
+    /// #     cyclonedds::Topicable, cyclonedds::FixedSize, serde::Serialize, serde::Deserialize,
+    /// #     Clone, Copy, Debug, Default,
+    /// # )]
+    /// # #[repr(C)]
+    /// # struct Frame {
+    /// #     pixels: [u8; 16],
+    /// # }
+    /// let topic = TopicBuilder::<Frame, _>::zero_copy(&participant, "Frames").build()?;
+    /// # Ok::<_, cyclonedds::Error>(())
+    /// ```
+    #[must_use]
+    pub const fn zero_copy(participant: &'p Participant<'d>, topic_name: &'n str) -> Self {
+        Self {
+            participant,
+            topic_name,
+            qos: None,
+            listener: None,
+            phantom_representation: std::marker::PhantomData,
+        }
+    }
+}
+
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<'d, 'p, 'q, T, R> TopicBuilder<'d, 'p, 'q, '_, T, R>
+where
+    T: crate::Topicable,
+    R: Layout<T>,
+    R: crate::representation::Representation,
+{
     /// Sets the [`QoS`](crate::QoS) for this topic builder.
     ///
     /// # Examples
@@ -123,7 +185,7 @@ where
     #[must_use]
     pub fn with_listener<L>(mut self, listener: L) -> Self
     where
-        L: AsRef<crate::TopicListener<T>>,
+        L: AsRef<crate::TopicListener<T, R>>,
     {
         self.listener = Some(listener.as_ref().clone());
         self
@@ -157,14 +219,14 @@ where
     ///     .build()?;
     /// # Ok::<_, cyclonedds::Error>(())
     /// ```
-    pub fn build(self) -> Result<Topic<'d, 'p, T>> {
+    pub fn build(self) -> Result<Topic<'d, 'p, T, R>> {
         let name = std::ffi::CString::new(self.topic_name)
             .map_err(|_err| crate::error::Error::BadParameter)?;
         let type_name = std::ffi::CString::new(T::dds_type_name().as_ref())
             .map_err(|_err| crate::error::Error::BadParameter)?;
 
-        let mut sertype =
-            std::mem::ManuallyDrop::new(Box::new(Sertype::<T>::new(&type_name, T::IS_KEYED)));
+        let sertype = Sertype::<T, R>::new(&type_name, T::IS_KEYED);
+        let mut sertype = std::mem::ManuallyDrop::new(Box::new(sertype));
 
         self.listener
             .map(|listener| listener.as_ffi())
@@ -201,6 +263,10 @@ where
     ///
     /// The topic name identifies the communication channel. Writers and
     /// readers match when they share the same name and compatible type.
+    ///
+    /// A zero-copy topic comes from
+    /// [`TopicBuilder::zero_copy`](crate::builder::TopicBuilder::zero_copy)
+    /// instead.
     ///
     /// # Errors
     ///
@@ -257,17 +323,19 @@ where
     ) -> TopicBuilder<'d, 'p, 'q, 'n, T> {
         TopicBuilder::new(participant, topic_name)
     }
+}
 
-    pub(crate) const fn from_existing(
-        inner: cyclonedds_sys::dds_entity_t,
-    ) -> std::mem::ManuallyDrop<Self> {
-        std::mem::ManuallyDrop::new(Self {
-            inner,
-            phantom_type: std::marker::PhantomData,
-            phantom_participant: std::marker::PhantomData,
-        })
-    }
-
+#[allow(
+    private_bounds,
+    reason = "`Layout` is deliberately unnameable: it seals the set of representations to \
+              `Serialized` and `ZeroCopy`"
+)]
+impl<T, R> Topic<'_, '_, T, R>
+where
+    T: crate::Topicable,
+    R: Layout<T>,
+    R: crate::representation::Representation,
+{
     /// Sets the [`TopicListener`](crate::TopicListener) on this topic,
     /// replacing any previously set listener.
     ///
@@ -300,7 +368,7 @@ where
     pub fn set_listener<L>(&mut self, listener: L) -> Result<()>
     where
         T: serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + Default,
-        L: AsRef<crate::TopicListener<T>>,
+        L: AsRef<crate::TopicListener<T, R>>,
     {
         listener
             .as_ref()
@@ -366,15 +434,39 @@ where
     pub fn with_listener<L>(mut self, listener: L) -> Result<Self>
     where
         T: serde::ser::Serialize + serde::de::DeserializeOwned + std::clone::Clone + Default,
-        L: AsRef<crate::TopicListener<T>>,
+        L: AsRef<crate::TopicListener<T, R>>,
     {
         self.set_listener(listener).map(|_err| self)
     }
 }
 
-impl<T> Drop for Topic<'_, '_, T>
+impl<T, R> Topic<'_, '_, T, R>
 where
     T: crate::Topicable,
+    R: crate::representation::Representation,
+{
+    /// Wrap a topic entity this binding did not create, as a listener callback has
+    /// to when Cyclone DDS hands it the topic that fired.
+    ///
+    /// Deliberately outside the [`Layout`][crate::internal::layout::Layout]-bounded
+    /// operations: the representation is whatever the listener was declared with,
+    /// and a listener that is generic over it must still be able to build the
+    /// borrowed topic it passes on.
+    pub(crate) const fn from_existing(
+        inner: cyclonedds_sys::dds_entity_t,
+    ) -> std::mem::ManuallyDrop<Self> {
+        std::mem::ManuallyDrop::new(Self {
+            inner,
+            phantom_type: std::marker::PhantomData,
+            phantom_participant: std::marker::PhantomData,
+        })
+    }
+}
+
+impl<T, R> Drop for Topic<'_, '_, T, R>
+where
+    T: crate::Topicable,
+    R: crate::representation::Representation,
 {
     fn drop(&mut self) {
         let result = ffi::dds_delete(self.inner);
@@ -550,6 +642,40 @@ mod tests {
         let result = topic.unset_listener().unwrap_err();
         assert_eq!(result, crate::Error::BadParameter);
         topic.inner = topic_id;
+    }
+
+    /// A listener carries the representation of the topic it is attached to.
+    ///
+    /// The topic a callback is handed comes from a bare entity handle, which says
+    /// nothing about how its samples are represented. Taking it from the listener's
+    /// own type instead is what keeps the callback from being given a
+    /// `Topic<T, Serialized>` for a topic that is really zero-copy — from which a
+    /// writer built inside the callback would hand Cyclone DDS the wrong thing.
+    #[test]
+    fn test_topic_listener_carries_the_representation() {
+        use crate::representation::ZeroCopy;
+        use crate::tests::topic::RawData;
+
+        fn on_zero_copy_topic(
+            _: &Topic<'_, '_, RawData, ZeroCopy>,
+            _: crate::status::InconsistentTopic,
+        ) {
+        }
+
+        let domain_id = crate::tests::domain::unique_id();
+        let domain = crate::Domain::new(domain_id).unwrap();
+        let topic_name = crate::tests::topic::unique_name();
+        let participant = crate::Participant::new(&domain).unwrap();
+
+        // The callback takes a zero-copy topic, so only a zero-copy listener will
+        // accept it, and only a zero-copy topic will accept that listener.
+        let listener = crate::TopicListener::<RawData, ZeroCopy>::new()
+            .with_inconsistent_topic(on_zero_copy_topic);
+
+        let _ = TopicBuilder::zero_copy(&participant, &topic_name)
+            .with_listener(listener)
+            .build()
+            .unwrap();
     }
 
     #[test]

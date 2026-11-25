@@ -16,6 +16,12 @@ categories = [
 
 [lib]
 name = "cyclonedds_sys"
+# Every doc comment in this crate is a C comment that `bindgen` copied out of a
+# Cyclone DDS header, so "doctests" here are really fenced code blocks of C being
+# compiled as Rust. `dds_psmx.h` has one, for instance. What rustdoc collects
+# therefore depends on the comment formatting of whichever version of the C
+# headers is being built against, which is not something this crate can fix.
+doctest = false
 
 [dependencies]
 
